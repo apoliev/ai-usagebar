@@ -39,6 +39,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         window.add(this._buildOpenRouterPage(settings));
         window.add(this._buildDeepSeekPage(settings));
         window.add(this._buildKimiPage(settings));
+        window.add(this._buildSourceCraftPage(settings));
 
         window.connect('close-request', () => {
             for (const disconnect of cleanups)
@@ -337,6 +338,23 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         group.add(this._switchRow(settings, 'kimi-enabled', _('Enabled')));
         group.add(this._entryRow(settings, 'kimi-api-key-env', _('API key env var')));
         group.add(this._passwordRow(settings, 'kimi-api-key', _('API key (inline)')));
+        page.add(group);
+        return page;
+    }
+
+    _buildSourceCraftPage(settings) {
+        const page = new Adw.PreferencesPage({
+            title: _('SourceCraft'),
+            icon_name: 'ai-symbolic',
+        });
+        const group = new Adw.PreferencesGroup({
+            title: _('SourceCraft Code Assistant'),
+            description: _('Organization AI quotas, including personal organizations. Use a SourceCraft personal access token (PAT).'),
+        });
+        group.add(this._switchRow(settings, 'sourcecraft-enabled', _('Enabled')));
+        group.add(this._entryRow(settings, 'sourcecraft-organization', _('Organization slug')));
+        group.add(this._entryRow(settings, 'sourcecraft-api-key-env', _('PAT env var')));
+        group.add(this._passwordRow(settings, 'sourcecraft-api-key', _('Personal access token (inline)')));
         page.add(group);
         return page;
     }

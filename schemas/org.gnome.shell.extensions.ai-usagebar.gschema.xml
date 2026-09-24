@@ -7,6 +7,7 @@
     <value nick="openrouter" value="3"/>
     <value nick="deepseek" value="4"/>
     <value nick="kimi" value="5"/>
+    <value nick="sourcecraft" value="6"/>
   </enum>
 
   <schema id="org.gnome.shell.extensions.ai-usagebar"
@@ -194,5 +195,22 @@
       <description>Inline Kimi API key used when the environment variable is unset. Empty means none.</description>
     </key>
 
+    <key name="sourcecraft-enabled" type="b">
+      <default>false</default>
+      <summary>Enable SourceCraft Code Assistant</summary>
+    </key>
+    <key name="sourcecraft-api-key-env" type="s">
+      <default>'SOURCECRAFT_TOKEN'</default>
+      <summary>SourceCraft PAT environment variable</summary>
+    </key>
+    <key name="sourcecraft-api-key" type="s">
+      <default>''</default>
+      <summary>SourceCraft inline personal access token</summary>
+    </key>
+    <key name="sourcecraft-organization" type="s">
+      <default>''</default>
+      <summary>SourceCraft organization slug</summary>
+      <description>The organization whose Code Assistant quotas are displayed, including personal organizations.</description>
+    </key>
   </schema>
 </schemalist>

@@ -1,8 +1,11 @@
 # AI Usage Bar
 
-A GNOME Shell extension that shows your AI plan usage in the top panel for six
+A GNOME Shell extension that shows your AI plan usage in the top panel for seven
 vendors — **Anthropic (Claude)**, **OpenAI (Codex)**, **Z.AI / GLM**,
-**OpenRouter**, **DeepSeek**, and **Kimi**.
+**OpenRouter**, **DeepSeek**, **Kimi**, and **SourceCraft Code Assistant**.
+
+This fork adds SourceCraft Code Assistant quotas and preserves support for Z.AI
+credit-based (`CREDIT_LIMIT`) plans, including Lite.
 
 ## Overview
 
@@ -23,6 +26,9 @@ button to cycle between them.
 | **OpenRouter**         | Credit balance and usage                         | API key (env var or prefs entry)                                     |
 | **DeepSeek**           | Balance / credits                                | API key (env var or prefs entry)                                     |
 | **Kimi**               | Weekly quota + 5h window usage %, reset countdowns, plan | API key (env var or prefs entry)                             |
+
+SourceCraft displays monthly, bonus and extra neurocredits and code completions,
+using a SourceCraft PAT and organization slug.
 
 Only the **active** vendor is polled on the refresh timer; other enabled vendors
 render from the last fetched result and are refreshed lazily on scroll-cycle or
@@ -80,13 +86,48 @@ sent anywhere except the vendor's own usage endpoint.
 
 ## Configuration
 
+### SourceCraft Code Assistant
+
+In preferences, open **SourceCraft**, enter your **organization slug** (the name
+in its URL, including personal organizations) and a **personal access token**
+created in SourceCraft. The slug may differ from the organization's display name;
+using the display name can result in HTTP 404. Enter the PAT in the password
+field or provide it through
+`SOURCECRAFT_TOKEN` in the GNOME Shell process environment, then enable the vendor.
+The environment variable takes precedence over the inline token.
+
+The extension calls the official read-only endpoint
+`https://api.sourcecraft.tech/orgs/{org_slug}/quotas` using `Authorization: Bearer`.
+The token must have permission to read that organization's quotas. This displays
+organization quotas, not per-user caps inside a shared organization.
+
+The panel and notifications use the first quota with a positive limit, in this
+order: monthly AI quota, bonus AI quota, extra neurocredits, code completions.
+The popup shows all recognized AI quotas. A zero limit or missing quota is not
+reported as 0% usage. The API does not supply reset timestamps, so the reset
+placeholder is `—` and no countdown or pace estimate is invented.
+
+Additional panel placeholders: `{sourcecraft_usage}`, `{sourcecraft_limit}`,
+`{sourcecraft_remaining}`, `{sourcecraft_organization}`, `{sourcecraft_quota}`.
+For example: `{sourcecraft_usage}/{sourcecraft_limit}`.
+
+Cached usage is isolated by organization and token. On request failure the last
+valid result is shown as stale. Tokens and API error bodies are not logged.
+
+API contract: [List organization quotas](https://sourcecraft.dev/portal/docs/ru/api-ref/Quota/ListQuotas.md).
+Quota IDs were cross-checked against the public SourceCraft Code Assistant
+settings frontend on 2026-09-24. Live API fetching and GNOME panel/popup display
+were verified with a personal organization and PAT on the same date.
+
+### General settings
+
 Open preferences with `gnome-extensions prefs ai-usagebar@wilfison` (or the
 gear button in the popup footer). The prefs window exposes:
 
 - **Primary vendor** — the default active vendor on startup.
 - **Refresh interval** — seconds between polls (minimum 300; the vendor
   endpoints rate-limit below that).
-- **Per-vendor enable** — toggle each of the six vendors on or off; only enabled
+- **Per-vendor enable** — toggle each of the seven vendors on or off; only enabled
   vendors appear in the popup and the scroll cycle.
 - **Panel label format** (`bar-format`) — a template with `{token}` placeholders,
   e.g. the default `{session_pct}% · {session_reset}`. The active vendor's

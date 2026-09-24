@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ai-usagebar@wilfison\n"
 "Report-Msgid-Bugs-To: https://github.com/wilfison/ai-usagebar/issues\n"
-"POT-Creation-Date: 2026-07-17 18:03-0300\n"
+"POT-Creation-Date: 2026-09-24 13:31+0300\n"
 "PO-Revision-Date: 2026-06-06 12:00+0000\n"
 "Last-Translator: ai-usagebar contributors\n"
 "Language-Team: German\n"
@@ -140,7 +140,7 @@ msgid "~ %s-%s cloud messages"
 msgstr "~ %s-%s Cloud-Nachrichten"
 
 #. Translators: %s are money amounts, %s%% is the consumed percentage.
-#: lib/vendors/openrouter/section.js:22
+#: lib/vendors/openrouter/section.js:22 lib/vendors/sourcecraft/section.js:24
 #, javascript-format
 msgid "%s of %s used (%s%%)"
 msgstr "%s von %s genutzt (%s%%)"
@@ -183,6 +183,26 @@ msgstr "HTTP %s"
 msgid "Updated %s"
 msgstr "Aktualisiert %s"
 
+#: lib/vendors/sourcecraft/section.js:7
+msgid "Monthly AI quota"
+msgstr "Monatliches KI-Kontingent"
+
+#: lib/vendors/sourcecraft/section.js:8
+msgid "Bonus AI quota"
+msgstr "KI-Bonuskontingent"
+
+#: lib/vendors/sourcecraft/section.js:9
+msgid "Extra neurocredits"
+msgstr "Zusätzliche Neurocredits"
+
+#: lib/vendors/sourcecraft/section.js:10
+msgid "Code completions"
+msgstr "Code-Vervollständigungen"
+
+#: lib/vendors/sourcecraft/section.js:29
+msgid "No Code Assistant quotas reported for this organization"
+msgstr "Keine Code-Assistant-Kontingente für diese Organisation gemeldet"
+
 #: lib/vendors/zai/section.js:34
 msgid "Session (5h)"
 msgstr "Sitzung (5h)"
@@ -195,43 +215,43 @@ msgstr "MCP-Tools (monatlich)"
 msgid "no usage windows reported"
 msgstr "keine Nutzungsfenster gemeldet"
 
-#: prefs.js:52
+#: prefs.js:53
 msgid "General"
 msgstr "Allgemein"
 
-#: prefs.js:56
+#: prefs.js:57
 msgid "Display"
 msgstr "Anzeige"
 
-#: prefs.js:62
+#: prefs.js:63
 msgid "Primary vendor"
 msgstr "Primärer Anbieter"
 
-#: prefs.js:63
+#: prefs.js:64
 msgid "Shown by default and used as the scroll-cycle reset target"
 msgstr "Standardmäßig angezeigt und als Rücksetzziel beim Scrollen verwendet"
 
-#: prefs.js:87
+#: prefs.js:88
 msgid "Refresh"
 msgstr "Aktualisierung"
 
 #. Translators: %d is the minimum refresh interval in seconds.
-#: prefs.js:89
+#: prefs.js:90
 #, javascript-format
 msgid "Minimum %d s — the upstream endpoints rate-limit below that."
 msgstr "Minimum %d s — die Upstream-Endpunkte drosseln darunter."
 
-#: prefs.js:98
+#: prefs.js:99
 msgid "Refresh interval (seconds)"
 msgstr "Aktualisierungsintervall (Sekunden)"
 
-#: prefs.js:121
+#: prefs.js:122
 msgid "Panel label"
 msgstr "Panel-Beschriftung"
 
 #. Translators: the {token} names are literal placeholders the user
 #. types — keep them verbatim, only translate the surrounding prose.
-#: prefs.js:124
+#: prefs.js:125
 msgid ""
 "Placeholders: {vendor_short} {session_pct}% {session_reset} {plan} "
 "{weekly_pct} {weekly_reset}"
@@ -239,17 +259,17 @@ msgstr ""
 "Platzhalter: {vendor_short} {session_pct}% {session_reset} {plan} "
 "{weekly_pct} {weekly_reset}"
 
-#: prefs.js:126
+#: prefs.js:127
 msgid "Bar format"
 msgstr "Balkenformat"
 
-#: prefs.js:132
+#: prefs.js:133
 msgid "Popup"
 msgstr "Popup"
 
 #. Translators: the {token} names are literal placeholders the user
 #. types — keep them verbatim, only translate the surrounding prose.
-#: prefs.js:135
+#: prefs.js:136
 msgid ""
 "Optional extra lines shown above the popup. Empty uses the built-in layout. "
 "Placeholders: {plan} {session_pct} {session_reset} {weekly_pct} "
@@ -259,19 +279,19 @@ msgstr ""
 "Layout. Platzhalter: {plan} {session_pct} {session_reset} {weekly_pct} "
 "{weekly_reset}"
 
-#: prefs.js:137
+#: prefs.js:138
 msgid "Popup format"
 msgstr "Popup-Format"
 
-#: prefs.js:138
+#: prefs.js:139
 msgid "Show pace marker"
 msgstr "Tempomarkierung anzeigen"
 
-#: prefs.js:142
+#: prefs.js:143
 msgid "Severity colors"
 msgstr "Schweregrad-Farben"
 
-#: prefs.js:143
+#: prefs.js:144
 msgid ""
 "Pick a color per severity tier. Reset returns a tier to its built-in default."
 msgstr ""
@@ -279,27 +299,27 @@ msgstr ""
 "der Stufe wieder her."
 
 #. Translators: Low/Mid/High/Critical are usage-severity tier names.
-#: prefs.js:147
+#: prefs.js:148
 msgid "Low"
 msgstr "Niedrig"
 
-#: prefs.js:148
+#: prefs.js:149
 msgid "Mid"
 msgstr "Mittel"
 
-#: prefs.js:149
+#: prefs.js:150
 msgid "High"
 msgstr "Hoch"
 
-#: prefs.js:150
+#: prefs.js:151
 msgid "Critical"
 msgstr "Kritisch"
 
-#: prefs.js:154
+#: prefs.js:155
 msgid "Notifications"
 msgstr "Benachrichtigungen"
 
-#: prefs.js:155
+#: prefs.js:156
 msgid ""
 "Show a desktop notification the first time a vendor reaches the threshold. "
 "It re-arms when usage drops back or the window resets."
@@ -308,19 +328,19 @@ msgstr ""
 "erreicht. Sie wird erneut ausgelöst, wenn die Nutzung fällt oder das Fenster "
 "zurückgesetzt wird."
 
-#: prefs.js:157
+#: prefs.js:158
 msgid "Notify on high usage"
 msgstr "Bei hoher Nutzung benachrichtigen"
 
-#: prefs.js:165
+#: prefs.js:166
 msgid "Notification threshold (%)"
 msgstr "Benachrichtigungsschwelle (%)"
 
-#: prefs.js:188 prefs.js:227
+#: prefs.js:189 prefs.js:228
 msgid "Reset"
 msgstr "Zurücksetzen"
 
-#: prefs.js:189
+#: prefs.js:190
 msgid ""
 "Restore every setting — vendor toggles, paths, keys, formats, and colors — "
 "to its built-in default."
@@ -328,95 +348,121 @@ msgstr ""
 "Setzt jede Einstellung — Anbieter-Schalter, Pfade, Schlüssel, Formate und "
 "Farben — auf den Standardwert zurück."
 
-#: prefs.js:191
+#: prefs.js:192
 msgid "Reset all settings"
 msgstr "Alle Einstellungen zurücksetzen"
 
-#: prefs.js:223
+#: prefs.js:224
 msgid "Reset all settings?"
 msgstr "Alle Einstellungen zurücksetzen?"
 
-#: prefs.js:224
+#: prefs.js:225
 msgid ""
 "This restores every setting to its built-in default and cannot be undone."
 msgstr ""
 "Dies setzt jede Einstellung auf ihren Standardwert zurück und kann nicht "
 "rückgängig gemacht werden."
 
-#: prefs.js:226
+#: prefs.js:227
 msgid "Cancel"
 msgstr "Abbrechen"
 
-#: prefs.js:246 prefs.js:250
+#: prefs.js:247 prefs.js:251
 msgid "Anthropic"
 msgstr "Anthropic"
 
-#: prefs.js:251
+#: prefs.js:252
 msgid "Credentials path — empty uses ~/.claude/.credentials.json."
 msgstr "Anmeldedaten-Pfad — leer verwendet ~/.claude/.credentials.json."
 
-#: prefs.js:253 prefs.js:269 prefs.js:285 prefs.js:303 prefs.js:320
-#: prefs.js:337
+#: prefs.js:254 prefs.js:270 prefs.js:286 prefs.js:304 prefs.js:321
+#: prefs.js:338 prefs.js:354
 msgid "Enabled"
 msgstr "Aktiviert"
 
-#: prefs.js:254
+#: prefs.js:255
 msgid "Credentials path"
 msgstr "Anmeldedaten-Pfad"
 
-#: prefs.js:262 prefs.js:266
+#: prefs.js:263 prefs.js:267
 msgid "OpenAI"
 msgstr "OpenAI"
 
-#: prefs.js:267
+#: prefs.js:268
 msgid "Codex auth path — empty uses ~/.codex/auth.json."
 msgstr "Codex-Authentifizierungspfad — leer verwendet ~/.codex/auth.json."
 
-#: prefs.js:270
+#: prefs.js:271
 msgid "Codex auth path"
 msgstr "Codex-Authentifizierungspfad"
 
-#: prefs.js:278 prefs.js:282
+#: prefs.js:279 prefs.js:283
 msgid "Z.AI"
 msgstr "Z.AI"
 
-#: prefs.js:283 prefs.js:301
+#: prefs.js:284 prefs.js:302
 msgid "Set the API key inline or via the environment variable (env wins)."
 msgstr ""
 "API-Schlüssel direkt oder über die Umgebungsvariable festlegen (Umgebung hat "
 "Vorrang)."
 
-#: prefs.js:286 prefs.js:304 prefs.js:321 prefs.js:338
+#: prefs.js:287 prefs.js:305 prefs.js:322 prefs.js:339
 msgid "API key env var"
 msgstr "Umgebungsvariable des API-Schlüssels"
 
-#: prefs.js:287 prefs.js:305 prefs.js:322 prefs.js:339
+#: prefs.js:288 prefs.js:306 prefs.js:323 prefs.js:340
 msgid "API key (inline)"
 msgstr "API-Schlüssel (direkt)"
 
-#: prefs.js:288
+#: prefs.js:289
 msgid "Plan tier (lite/pro/max)"
 msgstr "Plan-Stufe (lite/pro/max)"
 
-#: prefs.js:296 prefs.js:300
+#: prefs.js:297 prefs.js:301
 msgid "OpenRouter"
 msgstr "OpenRouter"
 
-#: prefs.js:313 prefs.js:317
+#: prefs.js:314 prefs.js:318
 msgid "DeepSeek"
 msgstr "DeepSeek"
 
-#: prefs.js:318 prefs.js:335
+#: prefs.js:319 prefs.js:336
 msgid "Disabled by default; requires an API key (env var or inline)."
 msgstr ""
 "Standardmäßig deaktiviert; erfordert einen API-Schlüssel (Umgebungsvariable "
 "oder direkt)."
 
-#: prefs.js:330 prefs.js:334
+#: prefs.js:331 prefs.js:335
 msgid "Kimi"
 msgstr "Kimi"
 
-#: prefs.js:365
+#: prefs.js:347
+msgid "SourceCraft"
+msgstr "SourceCraft"
+
+#: prefs.js:351
+msgid "SourceCraft Code Assistant"
+msgstr "SourceCraft Code Assistant"
+
+#: prefs.js:352
+msgid ""
+"Organization AI quotas, including personal organizations. Use a SourceCraft "
+"personal access token (PAT)."
+msgstr "KI-Kontingente der Organisation, auch für persönliche Organisationen. Verwenden Sie ein persönliches SourceCraft-Zugriffstoken (PAT)."
+
+#: prefs.js:355
+msgid "Organization slug"
+msgstr "URL-Kennung der Organisation"
+
+#: prefs.js:356
+msgid "PAT env var"
+msgstr "PAT-Umgebungsvariable"
+
+#: prefs.js:357
+msgid "Personal access token (inline)"
+msgstr "Persönliches Zugriffstoken (direkt)"
+
+#: prefs.js:383
 msgid "Reset to default"
 msgstr "Auf Standard zurücksetzen"
 

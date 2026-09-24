@@ -26,9 +26,7 @@ button to cycle between them.
 | **OpenRouter**         | Credit balance and usage                         | API key (env var or prefs entry)                                     |
 | **DeepSeek**           | Balance / credits                                | API key (env var or prefs entry)                                     |
 | **Kimi**               | Weekly quota + 5h window usage %, reset countdowns, plan | API key (env var or prefs entry)                             |
-
-SourceCraft displays monthly, bonus and extra neurocredits and code completions,
-using a SourceCraft PAT and organization slug.
+| **SourceCraft Code Assistant** | Monthly, bonus and extra neurocredits; code completions | SourceCraft PAT + organization slug (env var or prefs entry) |
 
 Only the **active** vendor is polled on the refresh timer; other enabled vendors
 render from the last fetched result and are refreshed lazily on scroll-cycle or
@@ -82,6 +80,12 @@ sent anywhere except the vendor's own usage endpoint.
   1. the named **environment variable** (defaults `ZAI_API_KEY`,
      `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `KIMI_API_KEY`) if it is set;
   2. otherwise the **inline key** entered in preferences;
+  3. otherwise the vendor reports a configuration error in its popup section.
+- **SourceCraft Code Assistant.** Uses a SourceCraft personal access token
+  (PAT) with the organization slug (see [SourceCraft Code Assistant](#sourcecraft-code-assistant)).
+  The token is resolved in this order:
+  1. the named **environment variable** (default `SOURCECRAFT_TOKEN`) if it is set;
+  2. otherwise the **inline token** entered in preferences;
   3. otherwise the vendor reports a configuration error in its popup section.
 
 ## Configuration
@@ -139,7 +143,8 @@ gear button in the popup footer). The prefs window exposes:
 - **Pace marker** — show an on-/off-pace indicator comparing usage against
   elapsed time in the window.
 - **Per-vendor auth** — credentials path (Anthropic/OpenAI), API-key env-var name
-  and inline key (Z.AI/OpenRouter/DeepSeek/Kimi), and Z.AI plan tier.
+  and inline key (Z.AI/OpenRouter/DeepSeek/Kimi), Z.AI plan tier, and the
+  SourceCraft PAT (env-var name or inline) with its organization slug.
 
 ## Privacy & security
 

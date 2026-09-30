@@ -71,4 +71,28 @@ describe('buildSection (zai) — injected translator', () => {
     });
 });
 
+describe('buildSection (zai) — pace footnote', () => {
+    const now = new Date('2026-06-05T12:00:00Z');
+    const half = windowMs => new Date(now.getTime() + windowMs / 2);
+    const snap = {
+        plan: 'Pro',
+        session: {utilizationPct: 60, resetsAt: half(SESSION_MS), windowMs: SESSION_MS},
+        weekly: {utilizationPct: 100, resetsAt: half(WEEKLY_MS), windowMs: WEEKLY_MS},
+        mcp: {utilizationPct: 10, resetsAt: half(MCP_MS), windowMs: MCP_MS},
+    };
+    const windows = buildSection(snap, {stale: false, lastError: null, fetchedAt: now}, now, defaultTheme())
+        .rows.filter(r => r.kind === 'window');
+
+    it('every window carries its footnote', () => {
+        assertEqual(windows[0].paceFootnote, '50% elapsed · 10pts ahead');
+        assertEqual(windows[2].paceFootnote, '50% elapsed · 40pts under');
+    });
+
+    it('a window at its cap: Limit reached, no marker, no glyph', () => {
+        assertEqual(windows[1].paceFootnote, 'Limit reached');
+        assertEqual('elapsedPct' in windows[1], false);
+        assertEqual(windows[1].paceGlyph, '');
+    });
+});
+
 system.exit(summary());

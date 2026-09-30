@@ -2,7 +2,8 @@ import system from 'system';
 
 import {
     parseUsage, kimiSeverity, kimiPeakUsage, placeholders, fakeSnapshot, pct,
-    WEEKLY_MS, WINDOW_MS, SchemaError,
+    humanizeLevel, planLabelFromMe, snapshotToCacheJson, parseCacheJson,
+    WEEKLY_MS, WINDOW_MS, SchemaError, notifyRows, resetCredits,
 } from '../../../../lib/vendors/kimi/parser.js';
 import {substitute} from '../../../../lib/format.js';
 import {Severity} from '../../../../lib/severity.js';
@@ -19,10 +20,21 @@ const STRING_NUMS = JSON.stringify({
     ],
 });
 
+const MONTHLY = JSON.stringify({
+    user: {membership: {level: 'LEVEL_INTERMEDIATE'}},
+    usages: {
+        limit_month_total: {used_ratio: 0.426, reset_time: '2026-10-15T00:00:00Z'},
+        limit_month_code: {used_ratio: 0.9},
+        limit_5h: {used_ratio: 0.99},
+    },
+    limits: [{window: {duration: 300, timeUnit: 'TIME_UNIT_MINUTE'}, detail: {limit: 100, used: 15, remaining: 85}}],
+});
+
 describe('parseUsage', () => {
     it('parses the representative shape (string numbers)', () => {
         const s = parseUsage(STRING_NUMS);
-        assertEqual(s.plan, 'LEVEL_INTERMEDIATE');
+        assertEqual(s.plan, 'Intermediate');
+        assertEqual(s.monthly, null);
         assertEqual(s.weekly.limit, 100);
         assertEqual(s.weekly.used, 26);
         assertEqual(s.weekly.remaining, 74);
@@ -41,7 +53,7 @@ describe('parseUsage', () => {
             usage: {limit: 500, used: 123, remaining: 377},
             limits: [{window: {duration: 300, timeUnit: 'TIME_UNIT_MINUTE'}, detail: {limit: 200, used: 50, remaining: 150}}],
         })));
-        assertEqual(s.plan, 'LEVEL_ADVANCED');
+        assertEqual(s.plan, 'Advanced');
         assertEqual(s.weekly.used, 123);
         assertEqual(s.window.used, 50);
     });
@@ -114,8 +126,42 @@ describe('parseUsage', () => {
         })));
     });
 
-    it('missing top-level usage → schema drift', () =>
-        assertThrows(() => parseUsage('{"user":{}}')));
+    it('missing both usage and usages.limit_month_total → schema drift', () => {
+        assertThrows(() => parseUsage('{"user":{}}'));
+        assertThrows(() => parseUsage('{"usages":{"limit_5h":{"used_ratio":0.1}}}'));
+    });
+
+    it('parses the newer usages shape: monthly ratio, no weekly', () => {
+        const s = parseUsage(MONTHLY);
+        assertEqual(s.plan, 'Intermediate');
+        assertEqual(s.weekly, null);
+        assertEqual(s.monthly.utilizationPct, 43);
+        assertEqual(s.monthly.resetsAt.toISOString(), '2026-10-15T00:00:00.000Z');
+        assertEqual(s.window.used, 15);
+    });
+
+    it('accepts the reset aliases on limit_month_total', () => {
+        for (const key of ['resetTime', 'resetAt', 'reset_at']) {
+            const s = parseUsage(JSON.stringify({usages: {limit_month_total: {used_ratio: 0, [key]: '2026-10-15T00:00:00Z'}}}));
+            assertEqual(s.monthly.resetsAt instanceof Date, true);
+        }
+    });
+
+    it('the legacy usage block wins over a usages map beside it', () => {
+        const s = parseUsage(JSON.stringify({
+            usage: {limit: 100, used: 10, remaining: 90},
+            usages: {limit_month_total: {used_ratio: 0.9}},
+        }));
+        assertEqual(s.weekly.used, 10);
+        assertEqual(s.monthly, null);
+    });
+
+    it('used_ratio missing, non-finite or outside [0, 1] → schema drift', () => {
+        for (const ratio of [undefined, null, '0.5', 1.2, -0.1]) {
+            assertThrows(() => parseUsage(JSON.stringify({usages: {limit_month_total: {used_ratio: ratio}}})));
+        }
+        assertEqual(parseUsage('{"usages":{"limit_month_total":{"used_ratio":1}}}').monthly.utilizationPct, 100);
+    });
 
     it('both used and remaining missing → schema drift', () => {
         let threw = false;
@@ -137,6 +183,36 @@ describe('parseUsage', () => {
         assertThrows(() => parseUsage('[]'));
         assertThrows(() => parseUsage('not json'));
     });
+});
+
+describe('plan label', () => {
+    it('humanizes the membership enum without inventing a tier', () => {
+        assertEqual(humanizeLevel('LEVEL_INTERMEDIATE'), 'Intermediate');
+        assertEqual(humanizeLevel('LEVEL_SUPER_ADVANCED'), 'Super Advanced');
+        assertEqual(humanizeLevel('  basic  '), 'Basic');
+        assertEqual(humanizeLevel('LEVEL_'), 'LEVEL_');
+    });
+
+    it('reads only user_level_name from /me, verbatim', () => {
+        const me = JSON.stringify({email: 'someone@example.com', nickname: 'n', user_level: 25, user_level_name: 'Allegretto'});
+        assertEqual(planLabelFromMe(me), 'Allegretto');
+        assertEqual(planLabelFromMe(new TextEncoder().encode(me)), 'Allegretto');
+        assertEqual(planLabelFromMe('{"user_level_name":"  "}'), null);
+        assertEqual(planLabelFromMe('{}'), null);
+        assertEqual(planLabelFromMe('not json'), null);
+    });
+
+    it('the plan survives the cache round-trip', () => {
+        const snap = parseUsage(MONTHLY);
+        snap.plan = 'Allegretto';
+        const back = parseCacheJson(snapshotToCacheJson(snap));
+        assertEqual(back.plan, 'Allegretto');
+        assertEqual(back.monthly.resetsAt instanceof Date, true);
+        assertEqual(back.monthly.utilizationPct, 43);
+    });
+
+    it('a raw /usages body in the cache is treated as corrupt', () =>
+        assertThrows(() => parseCacheJson(MONTHLY)));
 });
 
 describe('pct', () => {
@@ -164,8 +240,32 @@ describe('kimiSeverity / kimiPeakUsage', () => {
     });
 });
 
+describe('kimiPeakUsage — monthly shape', () => {
+    it('the monthly pool alone can drive severity', () => {
+        const s = parseUsage('{"usages":{"limit_month_total":{"used_ratio":0.95}}}');
+        assertEqual(kimiPeakUsage(s).percent, 95);
+        assertEqual(kimiSeverity(s), Severity.CRITICAL);
+    });
+
+    it('the 5h window wins when higher than the monthly pool', () => {
+        const p = kimiPeakUsage(parseUsage(MONTHLY));
+        assertEqual(p.percent, 43);
+    });
+});
+
 describe('placeholders', () => {
     const now = new Date('2026-06-05T00:00:00Z');
+
+    it('newer shape: weekly placeholders are empty, monthly ones resolve', () => {
+        const m = placeholders(parseUsage(MONTHLY), now);
+        assertEqual(m.get('kimi_weekly_pct'), '');
+        assertEqual(m.get('kimi_weekly_reset'), '');
+        assertEqual(m.get('weekly_pct'), '');
+        assertEqual(m.get('weekly_reset'), '');
+        assertEqual(m.get('kimi_monthly_pct'), '43');
+        assertEqual(m.get('kimi_monthly_reset') !== '', true);
+        assertEqual(m.get('kimi_window_pct'), '15');
+    });
 
     it('maps window→session_* and weekly→weekly_*', () => {
         const s = parseUsage(JSON.stringify({
@@ -177,7 +277,9 @@ describe('placeholders', () => {
         assertEqual(substitute('{vendor_short} {session_pct}% w{weekly_pct}%', m), 'kmi 12% w42%');
         assertEqual(m.get('kimi_window_pct'), '12');
         assertEqual(m.get('kimi_weekly_pct'), '42');
-        assertEqual(m.get('kimi_plan'), 'LEVEL_PRO');
+        assertEqual(m.get('kimi_plan'), 'Pro');
+        assertEqual(m.get('kimi_monthly_pct'), '');
+        assertEqual(m.get('kimi_monthly_reset'), '');
     });
 
     it('absent window → session_reset is —', () => {
@@ -196,6 +298,39 @@ describe('fakeSnapshot', () => {
         assertEqual(kimiPeakUsage(s).percent, 23);
         assertEqual(s.weekly.resetAt instanceof Date, true);
         assertEqual(WEEKLY_MS > WINDOW_MS, true);
+    });
+});
+
+const PACE_NOW = new Date('2026-06-05T12:00:00Z');
+const halfway = windowMs => new Date(PACE_NOW.getTime() + windowMs / 2);
+
+describe('placeholders — elapsed aliases', () => {
+    const block = windowMs => ({limit: 100, used: 30, remaining: 70, resetAt: halfway(windowMs)});
+
+    it('session_elapsed follows the 5h window, weekly_elapsed the weekly one', () => {
+        const m = placeholders({plan: 'Moderato', window: block(WINDOW_MS), weekly: block(WEEKLY_MS), monthly: null}, PACE_NOW);
+        assertEqual(m.get('session_elapsed'), '50');
+        assertEqual(m.get('weekly_elapsed'), '50');
+    });
+
+    it('no weekly block → empty weekly_elapsed', () => {
+        const m = placeholders({plan: 'Moderato', window: block(WINDOW_MS), weekly: null, monthly: null}, PACE_NOW);
+        assertEqual(m.get('weekly_elapsed'), '');
+    });
+});
+
+describe('notifyRows / resetCredits', () => {
+    it('window, weekly and monthly rows', () => {
+        const block = {limit: 100, used: 98, remaining: 2, resetAt: null};
+        const rows = notifyRows({plan: 'x', window: block, weekly: block, monthly: {utilizationPct: 5, resetsAt: null}});
+        assertEqual(rows.map(r => r.key).join(','), 'window,weekly,monthly');
+        assertEqual(rows[0].percent, 98);
+        assertEqual(resetCredits({}).length, 0);
+    });
+
+    it('a zero-limit window is skipped', () => {
+        const rows = notifyRows({plan: 'x', window: {limit: 0, used: 0, remaining: 0, resetAt: null}, weekly: null, monthly: null});
+        assertEqual(rows.length, 0);
     });
 });
 

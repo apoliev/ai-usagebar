@@ -4,10 +4,14 @@ import {
     parseUsage,
     anthropicSeverity,
     anthropicPeakUsage,
-    fmtDollars,
+    formatMinor,
+    snapshotToCacheJson,
+    parseCacheJson,
+    formatExtraAmount,
     placeholders,
     fakeSnapshot,
-    SchemaError,
+    resetsAvailable,
+    SchemaError, notifyRows, resetCredits,
 } from '../../../../lib/vendors/anthropic/parser.js';
 import {Severity} from '../../../../lib/severity.js';
 import {substitute} from '../../../../lib/format.js';
@@ -87,6 +91,46 @@ describe('parseUsage', () => {
         }), 'Pro');
         assertEqual(s.session.resetsAt, null);
         assertEqual(s.session.utilizationPct, 50);
+    });
+
+    it('sanitizes the scoped model label', () => {
+        const s = parseUsage(JSON.stringify({limits: [{kind: 'weekly_scoped', percent: 1,
+            scope: {model: {display_name: 'Fa‮ble\u0007'}}}]}), 'Pro');
+        assertEqual(s.scoped[0].label, 'Fable');
+    });
+
+    const extraOf = (eu) => parseUsage(JSON.stringify({extra_usage: Object.assign({is_enabled: true}, eu)}), 'Pro').extra;
+
+    it('monthly_limit null keeps the block with no cap', () => {
+        const e = extraOf({monthly_limit: null, used_credits: 14157.0});
+        assertEqual(e.limitCents, null);
+        assertEqual(e.spentCents, 14157);
+    });
+
+    it('drops an enabled block without used_credits', () => {
+        assertEqual(extraOf({monthly_limit: 5000}), null);
+        assertEqual(extraOf({monthly_limit: 5000, used_credits: null}), null);
+    });
+
+    it('is_enabled:false drops the block even with a spend', () =>
+        assertEqual(extraOf({is_enabled: false, used_credits: 250}), null));
+
+    it('negative money values are schema drift', () => {
+        assertThrows(() => extraOf({monthly_limit: -1, used_credits: 0}));
+        assertThrows(() => extraOf({used_credits: -250}));
+    });
+
+    it('reads currency and decimal_places, accepting an integral float scale', () => {
+        const e = extraOf({used_credits: 14157, currency: 'BRL', decimal_places: 2.0});
+        assertEqual(e.currency, 'BRL');
+        assertEqual(e.decimalPlaces, 2);
+    });
+
+    it('rejects an invalid currency or decimal_places', () => {
+        for (const currency of ['brl', 'BR', 'R$', 'BRLX', 7])
+            assertThrows(() => extraOf({used_credits: 1, currency}));
+        for (const dp of [-1, 7, 2.5, '2'])
+            assertThrows(() => extraOf({used_credits: 1, decimal_places: dp}));
     });
 
     it('extra money values accept floats and truncate', () => {
@@ -205,18 +249,36 @@ describe('anthropicPeakUsage', () => {
     });
 });
 
-describe('fmtDollars', () => {
-    it('formats positive cents as $D.CC', () => {
-        assertEqual(fmtDollars(0), '$0.00');
-        assertEqual(fmtDollars(50), '$0.50');
-        assertEqual(fmtDollars(250), '$2.50');
-        assertEqual(fmtDollars(5000), '$50.00');
+describe('formatMinor', () => {
+    it('formats legacy cents as $D.CC', () => {
+        assertEqual(formatMinor(0, 2), '$0.00');
+        assertEqual(formatMinor(50, 2), '$0.50');
+        assertEqual(formatMinor(5000, 2), '$50.00');
     });
 
-    it('formats negative cents with a leading sign', () => {
-        assertEqual(fmtDollars(-150), '-$1.50');
-        assertEqual(fmtDollars(-1), '-$0.01');
+    it('formats negative amounts with the sign ahead of the symbol', () => {
+        assertEqual(formatMinor(-150, 2), '-$1.50');
+        assertEqual(formatMinor(-1, 2, 'EUR'), '-€0.01');
     });
+
+    it('uses the symbol table, else trails the code', () => {
+        assertEqual(formatMinor(14157, 2, 'BRL'), 'R$141.57');
+        assertEqual(formatMinor(350, 2, 'GBP'), '£3.50');
+        assertEqual(formatMinor(1200, 0, 'JPY'), '¥1200');
+        assertEqual(formatMinor(99, 2, 'CNY'), '¥0.99');
+        assertEqual(formatMinor(12345, 3, 'KWD'), '12.345 KWD');
+    });
+});
+
+describe('formatExtraAmount', () => {
+    const fmt = (currency, decimalPlaces, minor) => formatExtraAmount({currency, decimalPlaces}, minor);
+
+    it('both fields → that scale and currency', () => assertEqual(fmt('BRL', 2, 14157), 'R$141.57'));
+    it('currency without decimal_places → raw minor units', () => assertEqual(fmt('BRL', null, 14157), '14157 minor units BRL'));
+    it('decimal_places without currency → that scale with $', () => assertEqual(fmt(null, 3, 14157), '$14.157'));
+    it('neither → legacy $ cents', () => assertEqual(fmt(null, null, 14157), '$141.57'));
+    it('a snapshot built without the fields reads as legacy', () =>
+        assertEqual(formatExtraAmount({limitCents: 1, spentCents: 250}, 250), '$2.50'));
 });
 
 describe('placeholders', () => {
@@ -262,6 +324,29 @@ describe('placeholders', () => {
         assertEqual(m.get('extra_limit'), '$50.00');
         assertEqual(m.get('extra_pct'), '5'); // 250*100/5000
     });
+
+    it('no cap: extra_limit is — and extra_pct is 0', () => {
+        const m = placeholders({...s, extra: {limitCents: null, spentCents: 14157, currency: 'BRL', decimalPlaces: 2}}, now);
+        assertEqual(m.get('extra_spent'), 'R$141.57');
+        assertEqual(m.get('extra_limit'), '—');
+        assertEqual(m.get('extra_pct'), '0');
+    });
+});
+
+describe('cache round-trip', () => {
+    it('restores windows, scoped limits and the currency-aware extra block', () => {
+        const snap = parseUsage(JSON.stringify(Object.assign(JSON.parse(FULL), {
+            extra_usage: {is_enabled: true, monthly_limit: null, used_credits: 14157, currency: 'BRL', decimal_places: 2},
+            limits: [{kind: 'weekly_scoped', percent: 30, resets_at: '2026-05-30T12:00:00Z', scope: {model: {display_name: 'Fable'}}}],
+        })), 'Max 5x');
+        const back = parseCacheJson(snapshotToCacheJson(snap));
+        assertEqual(back.session.resetsAt.getTime(), snap.session.resetsAt.getTime());
+        assertEqual(back.scoped[0].label, 'Fable');
+        assertEqual(back.scoped[0].resetsAt instanceof Date, true);
+        assertEqual(back.extra.limitCents, null);
+        assertEqual(back.extra.currency, 'BRL');
+        assertThrows(() => parseCacheJson(FULL));
+    });
 });
 
 describe('fakeSnapshot', () => {
@@ -274,6 +359,176 @@ describe('fakeSnapshot', () => {
         assertEqual(s.scoped[0].utilizationPct, 23);
         assertEqual(anthropicPeakUsage(s).percent, 23);
         assertEqual(s.extra, null);
+    });
+});
+
+function withGrants(cedarEmber) {
+    return JSON.stringify({
+        five_hour: {utilization: 2, resets_at: '2026-09-24T17:49:59Z'},
+        seven_day: {utilization: 63, resets_at: '2026-09-25T08:59:59Z'},
+        ...(cedarEmber === undefined ? {} : {cedar_ember: cedarEmber}),
+    });
+}
+
+function grant(overrides = {}) {
+    return {
+        id: 'a-redemption-handle',
+        label: 'Claude Opus 5.5 launch reset',
+        resets_total: 2,
+        resets_left: 2,
+        starts_at: '2026-09-22T16:00:00+00:00',
+        ends_at: '2026-10-22T16:00:00+00:00',
+        paused: false,
+        usable_now: true,
+        ...overrides,
+    };
+}
+
+describe('parseUsage — cedar_ember resets', () => {
+    it('counts only usable, unpaused grants with resets left', () => {
+        const s = parseUsage(withGrants({
+            eligible: true,
+            grants: [grant(), grant({label: 'Paused', paused: true}), grant({label: 'Spent', resets_left: 0})],
+        }), 'Team');
+        assertEqual(s.resets.length, 1);
+        assertEqual(s.resets[0].label, 'Claude Opus 5.5 launch reset');
+        assertEqual(s.resets[0].resetsLeft, 2);
+        assertEqual(s.resets[0].endsAt.getTime(), Date.parse('2026-10-22T16:00:00Z'));
+    });
+
+    it('never keeps the redemption id', () => {
+        const s = parseUsage(withGrants({eligible: true, grants: [grant()]}), 'Team');
+        assertEqual('id' in s.resets[0], false);
+        assertEqual(snapshotToCacheJson(s).includes('a-redemption-handle'), false);
+    });
+
+    it('a grant missing usable_now is not counted', () => {
+        const g = grant();
+        delete g.usable_now;
+        assertEqual(parseUsage(withGrants({eligible: true, grants: [g]}), 'Team').resets.length, 0);
+    });
+
+    it('no cedar_ember block → []', () => {
+        assertEqual(parseUsage(withGrants(undefined), 'Team').resets.length, 0);
+    });
+
+    it('eligible absent → []', () => {
+        assertEqual(parseUsage(withGrants({grants: [grant()]}), 'Team').resets.length, 0);
+    });
+
+    it('eligible false → []', () => {
+        const s = parseUsage(withGrants({eligible: false, ineligible_reason: 'surface', grants: [grant()]}), 'Team');
+        assertEqual(s.resets.length, 0);
+    });
+
+    it('a 90-character label is dropped but the grant still counts', () => {
+        const s = parseUsage(withGrants({eligible: true, grants: [grant({label: 'x'.repeat(90)})]}), 'Team');
+        assertEqual(s.resets.length, 1);
+        assertEqual(s.resets[0].label, null);
+    });
+
+    it('a label with a control character is dropped', () => {
+        const s = parseUsage(withGrants({eligible: true, grants: [grant({label: 'bad\u001b[31m'})]}), 'Team');
+        assertEqual(s.resets[0].label, null);
+    });
+
+    it('an 80-character label is kept', () => {
+        const s = parseUsage(withGrants({eligible: true, grants: [grant({label: 'y'.repeat(80)})]}), 'Team');
+        assertEqual(s.resets[0].label, 'y'.repeat(80));
+    });
+
+    it('ends_at absent → endsAt null', () => {
+        const g = grant();
+        delete g.ends_at;
+        assertEqual(parseUsage(withGrants({eligible: true, grants: [g]}), 'Team').resets[0].endsAt, null);
+    });
+
+    it('grants survive the cache round-trip', () => {
+        const s = parseUsage(withGrants({eligible: true, grants: [grant(), grant({label: 'Second', resets_left: 1})]}), 'Team');
+        const back = parseCacheJson(snapshotToCacheJson(s));
+        assertEqual(back.resets.length, 2);
+        assertEqual(back.resets[1].label, 'Second');
+        assertEqual(back.resets[1].resetsLeft, 1);
+        assertEqual(back.resets[0].endsAt instanceof Date, true);
+        assertEqual(back.resets[0].endsAt.getTime(), s.resets[0].endsAt.getTime());
+    });
+
+    it('a cache from the previous version is refused', () => {
+        let thrown = false;
+        try {
+            parseCacheJson(JSON.stringify({cacheVersion: 1, snapshot: {}}));
+        } catch (e) {
+            thrown = e instanceof SchemaError;
+        }
+        assertEqual(thrown, true);
+    });
+});
+
+describe('placeholders — resets', () => {
+    const NOW = new Date('2026-09-24T12:00:00Z');
+
+    it('sums resets_left across grants', () => {
+        const s = parseUsage(withGrants({eligible: true, grants: [grant(), grant({resets_left: 1})]}), 'Team');
+        assertEqual(resetsAvailable(s), 3);
+        const m = placeholders(s, NOW);
+        assertEqual(m.get('resets_available'), '3');
+        assertEqual(m.get('resets'), '3 resets available');
+    });
+
+    it('one reset is singular', () => {
+        const s = parseUsage(withGrants({eligible: true, grants: [grant({resets_left: 1})]}), 'Team');
+        assertEqual(placeholders(s, NOW).get('resets'), '1 reset available');
+    });
+
+    it('no grants → 0', () => {
+        const m = placeholders(parseUsage(withGrants(undefined), 'Team'), NOW);
+        assertEqual(m.get('resets_available'), '0');
+        assertEqual(m.get('resets'), '0 resets available');
+    });
+
+    it('uses the injected ngettext', () => {
+        const s = parseUsage(withGrants({eligible: true, grants: [grant({resets_left: 1})]}), 'Team');
+        const ngettext = (one, many, n) => (n === 1 ? `[${one}]` : `[${many}]`);
+        assertEqual(placeholders(s, NOW, ngettext).get('resets'), '[1 reset available]');
+    });
+
+    it('a snapshot without resets (fake, old shape) → 0', () => {
+        const s = parseUsage(withGrants(undefined), 'Team');
+        delete s.resets;
+        assertEqual(placeholders(s, NOW).get('resets_available'), '0');
+    });
+});
+
+describe('notifyRows / resetCredits', () => {
+    const R = new Date('2026-06-08T17:00:00Z');
+    const s = {
+        plan: 'Max 5x',
+        session: {utilizationPct: 97, resetsAt: R},
+        weekly: {utilizationPct: 40, resetsAt: null},
+        sonnet: {utilizationPct: 10, resetsAt: null},
+        scoped: [{label: 'Fable', utilizationPct: 50, resetsAt: R}],
+        extra: null,
+        resets: [{label: 'Launch', resetsLeft: 1, endsAt: R}],
+    };
+
+    it('one row per window with a stable key and a translated label', () => {
+        const rows = notifyRows(s, t => `<${t}>`);
+        assertEqual(rows.map(r => r.key).join(','), 'session,weekly,sonnet,scoped:Fable');
+        assertEqual(rows[0].label, '<Session>');
+        assertEqual(rows[0].percent, 97);
+        assertEqual(rows[0].resetsAt, R);
+        assertEqual(rows[3].label, 'Fable');
+    });
+
+    it('no Sonnet row when the window is absent', () => {
+        assertEqual(notifyRows({...s, sonnet: null, scoped: []}).length, 2);
+    });
+
+    it('grants become {title, expiresAt}', () => {
+        const [c] = resetCredits(s);
+        assertEqual(c.title, 'Launch');
+        assertEqual(c.expiresAt, R);
+        assertEqual(resetCredits({...s, resets: undefined}).length, 0);
     });
 });
 

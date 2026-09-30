@@ -3,7 +3,8 @@ import Gio from 'gi://Gio';
 import system from 'system';
 
 import {Cache} from '../../../../lib/cache.js';
-import {fetchSnapshot, USAGES_URL} from '../../../../lib/vendors/kimi/main.js';
+import {parseUsage, snapshotToCacheJson} from '../../../../lib/vendors/kimi/parser.js';
+import {fetchSnapshot, USAGES_URL, ME_URL} from '../../../../lib/vendors/kimi/main.js';
 import {describe, it, assertEqual, summary} from '../../../_assert.js';
 
 const LIVE = JSON.stringify({
@@ -17,6 +18,8 @@ const LIVE = JSON.stringify({
     ],
 });
 const SEED = JSON.stringify({usage: {limit: '100', used: '10', remaining: '90'}});
+
+const cached = (raw) => snapshotToCacheJson(parseUsage(raw));
 
 function runSync(promise) {
     const loop = GLib.MainLoop.new(null, false);
@@ -37,6 +40,17 @@ function httpStub(response) {
     const fn = (opts) => {
         calls.push(opts);
         return Promise.resolve(response);
+    };
+    fn.calls = calls;
+    return fn;
+}
+// Dispatches by URL so the concurrent /usages + /me pair is order-independent.
+function routeStub(routes) {
+    const calls = [];
+    const fn = (opts) => {
+        calls.push(opts);
+        const r = routes[opts.url];
+        return r instanceof Error ? Promise.reject(r) : Promise.resolve(r);
     };
     fn.calls = calls;
     return fn;
@@ -94,13 +108,41 @@ describe('fetchSnapshot (kimi)', () => {
         assertEqual(http.calls[0].headers.Authorization, 'Bearer sk-test');
         assertEqual(http.calls[0].headers.Accept, 'application/json');
         assertEqual(r.ok, true);
-        assertEqual(r.snapshot.plan, 'LEVEL_PRO');
+        assertEqual(r.snapshot.plan, 'Pro'); // /me stub returns the same body → no tier name
         assertEqual(r.snapshot.weekly.used, 42);
         assertEqual(r.snapshot.window.used, 15);
     }));
 
+    it('/me runs alongside /usages and its tier name is the plan, kept through the cache', withTemp(({cache}) => {
+        const http = routeStub({
+            [USAGES_URL]: res(200, LIVE),
+            [ME_URL]: res(200, JSON.stringify({email: 'x@example.com', user_level_name: 'Allegretto'})),
+        });
+        const r = runSync(fetchSnapshot({cache, http, apiKey: 'sk-test'}));
+        assertEqual(http.calls.length, 2);
+        const me = http.calls.find(c => c.url === ME_URL);
+        assertEqual(me.headers.Authorization, 'Bearer sk-test');
+        assertEqual(me.headers.Accept, 'application/json');
+        assertEqual(r.snapshot.plan, 'Allegretto');
+
+        const cached = runSync(fetchSnapshot({cache, http: routeStub({}), apiKey: 'sk-test'}));
+        assertEqual(cached.ok, true);
+        assertEqual(cached.snapshot.plan, 'Allegretto');
+    }));
+
+    it('a failing /me falls back to the humanized level and keeps ok', withTemp(({cache}) => {
+        for (const me of [res(404, '{"error":"no coding profile"}'), new Error('boom'),
+            {status: 0, headers: {}, bodyBytes: new Uint8Array(0), error: {kind: 'transport', message: 'down'}}]) {
+            const http = routeStub({[USAGES_URL]: res(200, LIVE), [ME_URL]: me});
+            const r = runSync(fetchSnapshot({cache, http, apiKey: 'k', cacheTtlMs: 0}));
+            assertEqual(r.ok, true);
+            assertEqual(r.snapshot.plan, 'Pro');
+            assertEqual(r.snapshot.weekly.used, 42);
+        }
+    }));
+
     it('HTTP 401 falls back to stale cache with lastError.code 401', withTemp(({cache}) => {
-        cache.writePayload(SEED);
+        cache.writePayload(cached(SEED));
         backdate(cache, 120);
         const http = httpStub(res(401, '{"secret":"do-not-leak"}'));
         const r = runSync(fetchSnapshot({cache, http, apiKey: 'k'}));
@@ -109,15 +151,17 @@ describe('fetchSnapshot (kimi)', () => {
         assertEqual(r.snapshot.weekly.used, 10);
         assertEqual(r.lastError.code, 401);
         // The persisted diagnostic never echoes the upstream body.
-        assertEqual(r.lastError.body, 'Kimi authentication failed');
+        assertEqual(r.lastError.body, '');
     }));
 
-    it('HTTP 401 with no cache → kind:error with the generic auth message', withTemp(({cache}) => {
+    it('HTTP 401 with no cache → auth-rejected, body never echoed', withTemp(({cache}) => {
         const http = httpStub(res(401, '{"secret":"do-not-leak"}'));
         const r = runSync(fetchSnapshot({cache, http, apiKey: 'k'}));
         assertEqual(r.ok, false);
         assertEqual(r.kind, 'error');
-        assertEqual(r.message, 'Kimi authentication failed');
+        assertEqual(r.code, 'auth-rejected');
+        assertEqual(r.status, 401);
+        assertEqual(JSON.stringify(r).includes('do-not-leak'), false);
     }));
 
     it('HTTP 500 with no cache → kind:error mentioning the status', withTemp(({cache}) => {

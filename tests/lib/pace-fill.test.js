@@ -64,4 +64,22 @@ describe('fillSegments — geometry', () => {
     });
 });
 
+describe('limit — a full bar has no pace tail', () => {
+    it('fillColors: no over colour at 100%', () => {
+        assertEqual(fillColors(100, 40, theme).over, null);
+        assertEqual(fillColors(100, 40, theme).base, theme.red);
+    });
+
+    it('fillSegments: a full fill stays one base segment', () => {
+        const seg = fillSegments(1, 0.4, 200);
+        assertEqual(seg.baseW, 200);
+        assertEqual(seg.overW, 0);
+    });
+
+    it('fillSegments: just under full still splits', () => {
+        const seg = fillSegments(0.99, 0.4, 200);
+        assertEqual(seg.overW > 0, true);
+    });
+});
+
 system.exit(summary());

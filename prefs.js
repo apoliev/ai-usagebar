@@ -8,7 +8,8 @@ import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Ex
 import {rgbToHex} from './lib/color.js';
 import {vformat} from './lib/format.js';
 import {defaultTheme} from './lib/theme.js';
-import {VENDOR_LABELS} from './lib/vendors.js';
+import {VENDOR_LABELS, vendorIconName} from './lib/vendors.js';
+import {parseExtraHeaders, validateMapping} from './lib/vendors/custom/parser.js';
 
 const INTERVAL_MIN = 300;
 const INTERVAL_MAX = 86400;
@@ -40,6 +41,8 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         window.add(this._buildDeepSeekPage(settings));
         window.add(this._buildKimiPage(settings));
         window.add(this._buildSourceCraftPage(settings));
+        window.add(this._buildOllamaPage(settings));
+        window.add(this._buildCustomPage(settings, cleanups));
 
         window.connect('close-request', () => {
             for (const disconnect of cleanups)
@@ -82,7 +85,43 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
             settings.disconnect(comboResyncId);
         });
         displayGroup.add(combo);
+        displayGroup.add(this._switchRow(settings, 'show-vendor-icons', _('Show vendor logos')));
         page.add(displayGroup);
+
+        const positionGroup = new Adw.PreferencesGroup({
+            title: _('Panel position'),
+            description: _('Changes apply immediately.'),
+        });
+        const boxes = ['left', 'center', 'right'];
+        const boxModel = new Gtk.StringList();
+        for (const label of [_('Left'), _('Center (beside the clock)'), _('Right (beside the system menu)')])
+            boxModel.append(label);
+        const boxRow = new Adw.ComboRow({title: _('Area'), model: boxModel});
+        boxRow.selected = Math.max(0, boxes.indexOf(settings.get_string('panel-box')));
+        const boxNotifyId = boxRow.connect('notify::selected', () => {
+            const v = boxes[boxRow.selected];
+            if (v && settings.get_string('panel-box') !== v)
+                settings.set_string('panel-box', v);
+        });
+        const boxResyncId = settings.connect('changed::panel-box', () => {
+            const i = boxes.indexOf(settings.get_string('panel-box'));
+            if (i >= 0 && boxRow.selected !== i)
+                boxRow.selected = i;
+        });
+        cleanups.push(() => {
+            boxRow.disconnect(boxNotifyId);
+            settings.disconnect(boxResyncId);
+        });
+        positionGroup.add(boxRow);
+        const indexRow = new Adw.SpinRow({
+            title: _('Position within the area'),
+            subtitle: _('0 is leftmost; in the center, 0 is left of the clock and 1 right of it'),
+            adjustment: new Gtk.Adjustment({lower: 0, upper: 20, step_increment: 1, page_increment: 1}),
+            digits: 0,
+        });
+        settings.bind('panel-index', indexRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        positionGroup.add(indexRow);
+        page.add(positionGroup);
 
         const cadenceGroup = new Adw.PreferencesGroup({
             title: _('Refresh'),
@@ -153,11 +192,11 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
 
         const notifyGroup = new Adw.PreferencesGroup({
             title: _('Notifications'),
-            description: _('Show a desktop notification the first time a vendor reaches the threshold. It re-arms when usage drops back or the window resets.'),
+            description: _('Show a desktop notification the first time a usage window reaches the threshold. It re-arms when usage drops 7 points below it or the window resets, and warns 48 hours before a reset credit expires.'),
         });
         notifyGroup.add(this._switchRow(settings, 'notify-enabled', _('Notify on high usage')));
         const notifyAdj = new Gtk.Adjustment({
-            lower: 0,
+            lower: 1,
             upper: 100,
             step_increment: 5,
             page_increment: 10,
@@ -245,7 +284,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         // Translators: "Anthropic" is a brand name — usually keep untranslated.
         const page = new Adw.PreferencesPage({
             title: _('Anthropic'),
-            icon_name: 'ai-symbolic',
+            icon_name: vendorIconName('anthropic'),
         });
         const group = new Adw.PreferencesGroup({
             title: _('Anthropic'),
@@ -254,6 +293,24 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         group.add(this._switchRow(settings, 'anthropic-enabled', _('Enabled')));
         group.add(this._entryRow(settings, 'anthropic-credentials-path', _('Credentials path')));
         page.add(group);
+
+        const context = new Adw.PreferencesGroup({
+            title: _('Context monitor'),
+            description: _('Lists recent Claude Code sessions in the Claude section, with how much of the context window each one used. Transcripts are read only while this is on.'),
+        });
+        context.add(this._switchRow(settings, 'context-enabled', _('Show session context')));
+        context.add(this._entryRow(settings, 'context-projects-path', _('Projects directory (empty: ~/.claude/projects)')));
+        const windowAdj = new Gtk.Adjustment({lower: 0, upper: 100000000, step_increment: 1000, page_increment: 100000});
+        const windowRow = new Adw.SpinRow({
+            title: _('Default context window (tokens)'),
+            subtitle: _('0 shows raw token counts instead of a percentage'),
+            adjustment: windowAdj,
+            digits: 0,
+        });
+        settings.bind('context-window-tokens', windowRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        context.add(windowRow);
+        context.add(this._entryRow(settings, 'context-model-windows', _('Window per model (JSON, e.g. {"claude-opus-5": 1000000})')));
+        page.add(context);
         return page;
     }
 
@@ -261,7 +318,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         // Translators: "OpenAI" is a brand name — usually keep untranslated.
         const page = new Adw.PreferencesPage({
             title: _('OpenAI'),
-            icon_name: 'ai-symbolic',
+            icon_name: vendorIconName('openai'),
         });
         const group = new Adw.PreferencesGroup({
             title: _('OpenAI'),
@@ -277,7 +334,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         // Translators: "Z.AI" is a brand name — usually keep untranslated.
         const page = new Adw.PreferencesPage({
             title: _('Z.AI'),
-            icon_name: 'ai-symbolic',
+            icon_name: vendorIconName('zai'),
         });
         const group = new Adw.PreferencesGroup({
             title: _('Z.AI'),
@@ -295,7 +352,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         // Translators: "OpenRouter" is a brand name — usually keep untranslated.
         const page = new Adw.PreferencesPage({
             title: _('OpenRouter'),
-            icon_name: 'ai-symbolic',
+            icon_name: vendorIconName('openrouter'),
         });
         const group = new Adw.PreferencesGroup({
             title: _('OpenRouter'),
@@ -312,7 +369,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         // Translators: "DeepSeek" is a brand name — usually keep untranslated.
         const page = new Adw.PreferencesPage({
             title: _('DeepSeek'),
-            icon_name: 'ai-symbolic',
+            icon_name: vendorIconName('deepseek'),
         });
         const group = new Adw.PreferencesGroup({
             title: _('DeepSeek'),
@@ -329,7 +386,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         // Translators: "Kimi" is a brand name — usually keep untranslated.
         const page = new Adw.PreferencesPage({
             title: _('Kimi'),
-            icon_name: 'ai-symbolic',
+            icon_name: vendorIconName('kimi'),
         });
         const group = new Adw.PreferencesGroup({
             title: _('Kimi'),
@@ -345,7 +402,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
     _buildSourceCraftPage(settings) {
         const page = new Adw.PreferencesPage({
             title: _('SourceCraft'),
-            icon_name: 'ai-symbolic',
+            icon_name: vendorIconName('sourcecraft'),
         });
         const group = new Adw.PreferencesGroup({
             title: _('SourceCraft Code Assistant'),
@@ -357,6 +414,129 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         group.add(this._passwordRow(settings, 'sourcecraft-api-key', _('Personal access token (inline)')));
         page.add(group);
         return page;
+    }
+
+    _buildOllamaPage(settings) {
+        // Translators: "Ollama" is a brand name — usually keep untranslated.
+        const page = new Adw.PreferencesPage({
+            title: _('Ollama'),
+            icon_name: vendorIconName('ollama'),
+        });
+        const group = new Adw.PreferencesGroup({
+            title: _('Ollama Cloud'),
+            description: _('Disabled by default; requires an API key (env var or inline).'),
+        });
+        group.add(this._switchRow(settings, 'ollama-enabled', _('Enabled')));
+        group.add(this._entryRow(settings, 'ollama-api-key-env', _('API key env var')));
+        group.add(this._passwordRow(settings, 'ollama-api-key', _('API key (inline)')));
+        group.add(this._entryRow(settings, 'ollama-plan', _('Plan name (optional)')));
+        page.add(group);
+        return page;
+    }
+
+    _buildCustomPage(settings, cleanups) {
+        const page = new Adw.PreferencesPage({
+            title: _('Custom'),
+            icon_name: vendorIconName('custom'),
+        });
+
+        const group = new Adw.PreferencesGroup({
+            title: _('Custom provider'),
+            description: _('Any HTTPS endpoint that answers a GET with JSON, mapped to usage rows by JSON Pointer. See the README for an example.'),
+        });
+        group.add(this._switchRow(settings, 'custom-enabled', _('Enabled')));
+        group.add(this._entryRow(settings, 'custom-name', _('Name')));
+        group.add(this._entryRow(settings, 'custom-url', _('URL')));
+        group.add(this._switchRow(settings, 'custom-allow-http', _('Allow plain HTTP')));
+        page.add(group);
+
+        const auth = new Adw.PreferencesGroup({
+            title: _('Authentication'),
+            description: _('Without a key no auth header is sent. An empty scheme sends the key bare.'),
+        });
+        auth.add(this._entryRow(settings, 'custom-api-key-env', _('API key env var (optional)')));
+        auth.add(this._passwordRow(settings, 'custom-api-key', _('API key (inline)')));
+        auth.add(this._entryRow(settings, 'custom-auth-header', _('Auth header')));
+        auth.add(this._entryRow(settings, 'custom-auth-scheme', _('Auth scheme')));
+        page.add(auth);
+
+        const headers = new Adw.PreferencesGroup({
+            title: _('Extra headers'),
+            description: _('A JSON object of header names to string values; it must not repeat the auth header.'),
+        });
+        headers.add(this._jsonEditor(settings, 'custom-extra-headers', text => {
+            const authHeader = settings.get_string('custom-auth-header').trim() || 'Authorization';
+            return parseExtraHeaders(text, authHeader) === null
+                ? [_('Not a JSON object of string header values, or it repeats the auth header.')]
+                : [];
+        }, cleanups));
+        page.add(headers);
+
+        const mapping = new Adw.PreferencesGroup({
+            title: _('Mapping'),
+            description: _('Metrics (used + limit, or percent) and texts, each read from the response by JSON Pointer. Saved when the editor loses focus and the mapping is valid.'),
+        });
+        mapping.add(this._jsonEditor(settings, 'custom-mapping', text => {
+            let obj;
+            try {
+                obj = JSON.parse(text);
+            } catch (e) {
+                return [vformat(_('Not valid JSON: %s'), e.message)];
+            }
+            return validateMapping(obj);
+        }, cleanups));
+        page.add(mapping);
+        return page;
+    }
+
+    // A monospace JSON editor bound to a string key: its text is saved when
+    // focus leaves and `validate` finds no problem; otherwise the problems
+    // show below it and the saved value stays. Empty is always valid.
+    _jsonEditor(settings, key, validate, cleanups) {
+        const box = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 6});
+        const view = new Gtk.TextView({
+            monospace: true,
+            wrap_mode: Gtk.WrapMode.WORD_CHAR,
+            top_margin: 8,
+            bottom_margin: 8,
+            left_margin: 8,
+            right_margin: 8,
+        });
+        view.buffer.text = settings.get_string(key);
+        const scroller = new Gtk.ScrolledWindow({
+            child: view,
+            min_content_height: 140,
+            hscrollbar_policy: Gtk.PolicyType.NEVER,
+            css_classes: ['card'],
+        });
+        // Problems may quote user text, so they are never parsed as markup.
+        const problems = new Gtk.Label({
+            use_markup: false,
+            wrap: true,
+            xalign: 0,
+            visible: false,
+            css_classes: ['error', 'caption'],
+        });
+        box.append(scroller);
+        box.append(problems);
+
+        const focus = new Gtk.EventControllerFocus();
+        focus.connect('leave', () => {
+            const text = view.buffer.text.trim();
+            const found = text === '' ? [] : validate(text);
+            problems.label = found.join('\n');
+            problems.visible = found.length > 0;
+            if (found.length === 0 && settings.get_string(key) !== text)
+                settings.set_string(key, text);
+        });
+        view.add_controller(focus);
+
+        const syncId = settings.connect(`changed::${key}`, () => {
+            if (!view.has_focus && view.buffer.text.trim() !== settings.get_string(key))
+                view.buffer.text = settings.get_string(key);
+        });
+        cleanups.push(() => settings.disconnect(syncId));
+        return box;
     }
 
     _switchRow(settings, key, title) {

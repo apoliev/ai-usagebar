@@ -3,12 +3,19 @@ import system from 'system';
 import {
     wrapWords,
     httpErrorRow,
+    errorText,
     footerRow,
+    groupHeading,
+    groupedUsage,
+    resetCreditRows,
+    paceFootnote,
+    paceFields,
     ICON_ERR_SERVER,
     ICON_ERR_CLIENT,
     ICON_FOOTER,
 } from '../lib/vendors/section-common.js';
 import {localTimeHm} from '../lib/format.js';
+import {localDateHm, format as formatCountdown} from '../lib/countdown.js';
 import {describe, it, assertEqual, assertDeepEqual, summary} from './_assert.js';
 
 const theme = {red: '#red', orange: '#orange'};
@@ -87,6 +94,44 @@ describe('httpErrorRow', () => {
     });
 });
 
+describe('rate-limited backoff', () => {
+    it('renders a rate-limited lastError as a client-side row with the countdown', () => {
+        const row = httpErrorRow({lastError: {code: 'rate-limited', retryInMs: 4 * 60 * 1000 + 1}}, theme);
+        assertEqual(row.kind, 'http-error');
+        assertEqual(row.icon, ICON_ERR_CLIENT);
+        assertEqual(row.color, '#orange');
+        assertEqual(row.status, 'rate limited; next attempt in 5m');
+        assertDeepEqual(row.lines, []);
+    });
+
+    it('errorText translates the rate-limited code and passes other messages through', () => {
+        assertEqual(errorText({ok: false, kind: 'error', code: 'rate-limited', retryInMs: 30 * 1000}),
+            'rate limited; next attempt in 30s');
+        assertEqual(errorText({ok: false, kind: 'error', code: 'rate-limited', retryInMs: 30 * 1000}, bracket),
+            '[rate limited; next attempt in [30s]]');
+        assertEqual(errorText({ok: false, kind: 'error', message: 'boom'}), 'boom');
+    });
+});
+
+describe('auth-rejected', () => {
+    it('a 401/403 lastError shows the translated notice and never its body', () => {
+        const row = httpErrorRow({lastError: {code: 401, body: '{"access_token":"secret"}'}}, theme);
+        assertEqual(row.status, 'HTTP 401: authentication rejected — credentials may be missing, expired, or invalid');
+        assertDeepEqual(row.lines, []);
+        assertEqual(httpErrorRow({lastError: {code: 403, body: 'x'}}, theme, bracket).status,
+            '[HTTP 403: authentication rejected — credentials may be missing, expired, or invalid]');
+    });
+
+    it('other bodies are sanitized at render', () => {
+        const row = httpErrorRow({lastError: {code: 500, body: 'bad‮gateway'}}, theme);
+        assertDeepEqual(row.lines, ['badgateway']);
+    });
+
+    it('errorText translates an auth-rejected result', () =>
+        assertEqual(errorText({ok: false, kind: 'error', code: 'auth-rejected', status: 403, message: 'x'}, bracket),
+            '[HTTP 403: authentication rejected — credentials may be missing, expired, or invalid]'));
+});
+
 describe('footerRow', () => {
     const fetchedAt = new Date(2026, 0, 1, 9, 5);
 
@@ -102,6 +147,177 @@ describe('footerRow', () => {
         const row = footerRow({fetchedAt: null});
         assertEqual(row.updated, '—');
         assertEqual(row.text, 'Updated —');
+    });
+});
+
+describe('groupHeading', () => {
+    it('builds a group-heading row carrying its label', () => {
+        assertDeepEqual(groupHeading('Session'), {kind: 'group-heading', label: 'Session'});
+    });
+});
+
+describe('groupedUsage', () => {
+    const palette = {red: '#red', orange: '#orange', yellow: '#yellow', green: '#green', fg: '#fg', dim: '#dim', barEmpty: '#empty'};
+
+    it('builds a grouped row with the value, detail and track color', () => {
+        const row = groupedUsage({
+            group: 'Weekly',
+            label: 'gpt-oss:120b',
+            percent: 42,
+            valueText: '42%',
+            detail: '1.2M tokens',
+            severity: null,
+        }, palette);
+        assertEqual(row.kind, 'grouped');
+        assertEqual(row.label, 'gpt-oss:120b');
+        assertEqual(row.pct, 42);
+        assertEqual(row.valueText, '42%');
+        assertEqual(row.detail, '1.2M tokens');
+        assertEqual(row.trackColor, '#empty');
+    });
+
+    it('a null severity paints the fill muted', () => {
+        const row = groupedUsage({label: 'm', percent: 95, valueText: '95%', severity: null}, palette);
+        assertEqual(row.severity, null);
+        assertEqual(row.color, '#dim');
+    });
+
+    it('a severity paints the fill in its color', () => {
+        const row = groupedUsage({label: 'ctx', percent: 80, valueText: '80%', severity: 'high'}, palette);
+        assertEqual(row.color, '#orange');
+    });
+
+    it('detail defaults to null', () => {
+        assertEqual(groupedUsage({label: 'm', percent: 1, valueText: '1%'}, palette).detail, null);
+    });
+
+    it('the key is stable for the same group + label', () => {
+        const a = groupedUsage({group: 'Session', label: 'm', percent: 1, valueText: '1%'}, palette);
+        const b = groupedUsage({group: 'Session', label: 'm', percent: 99, valueText: '99%'}, palette);
+        assertEqual(a.key, b.key);
+    });
+
+    it('the same label under another group gets another key', () => {
+        const a = groupedUsage({group: 'Session', label: 'm', percent: 1, valueText: '1%'}, palette);
+        const b = groupedUsage({group: 'Weekly', label: 'm', percent: 1, valueText: '1%'}, palette);
+        assertEqual(a.key === b.key, false);
+    });
+
+    it('the key does not collide when a separator character moves between group and label', () => {
+        const a = groupedUsage({group: 'a/b', label: 'c', percent: 1, valueText: '1%'}, palette);
+        const b = groupedUsage({group: 'a', label: 'b/c', percent: 1, valueText: '1%'}, palette);
+        assertEqual(a.key === b.key, false);
+    });
+});
+
+describe('resetCreditRows', () => {
+    const NOW = new Date('2026-06-05T12:00:00Z');
+    const later = new Date(NOW.getTime() + 3 * 86400 * 1000);
+    const sooner = new Date(NOW.getTime() + 3600 * 1000);
+    const past = new Date(NOW.getTime() - 3600 * 1000);
+
+    it('no credits → no rows', () => {
+        assertDeepEqual(resetCreditRows([], NOW), []);
+        assertDeepEqual(resetCreditRows(null, NOW), []);
+    });
+
+    it('a Resets heading, then one line per credit, soonest first, undated first', () => {
+        const rows = resetCreditRows([
+            {title: 'B', expiresAt: later},
+            {title: 'A', expiresAt: sooner},
+            {title: 'C', expiresAt: null},
+        ], NOW);
+        assertDeepEqual(rows[0], {kind: 'group-heading', label: 'Resets'});
+        assertEqual(rows[1].text, 'C · no expiry reported');
+        assertEqual(rows[2].text, `A · expires ${localDateHm(sooner)} (${formatCountdown(sooner, NOW)})`);
+        assertEqual(rows[3].text, `B · expires ${localDateHm(later)} (${formatCountdown(later, NOW)})`);
+    });
+
+    it('a lapsed credit reads "expired <date>"', () => {
+        assertEqual(resetCreditRows([{title: 'A', expiresAt: past}], NOW)[1].text, `A · expired ${localDateHm(past)}`);
+    });
+
+    it('without a title: the fallback title, or the capitalized expiry alone', () => {
+        assertEqual(resetCreditRows([{title: null, expiresAt: null}], NOW, undefined, 'Reset credit')[1].text,
+            'Reset credit · no expiry reported');
+        assertEqual(resetCreditRows([{title: null, expiresAt: null}], NOW)[1].text, 'No expiry reported');
+    });
+
+    it('does not reorder the caller array', () => {
+        const credits = [{title: 'B', expiresAt: later}, {title: 'A', expiresAt: sooner}];
+        resetCreditRows(credits, NOW);
+        assertEqual(credits[0].title, 'B');
+    });
+
+    it('translates through the injected translator', () => {
+        const rows = resetCreditRows([{title: 'A', expiresAt: null}], NOW, bracket);
+        assertEqual(rows[0].label, '[Resets]');
+        assertEqual(rows[1].text, 'A · [no expiry reported]');
+    });
+});
+
+describe('paceFootnote', () => {
+    const pace = (state, delta = 0, elapsedPct = 42) => ({state, delta, elapsedPct});
+
+    it('on track', () => assertEqual(paceFootnote(pace('ok', 0)), '42% elapsed · on track'));
+    it('ahead', () => assertEqual(paceFootnote(pace('ok', 3)), '42% elapsed · 3pts ahead'));
+    it('under', () => assertEqual(paceFootnote(pace('ok', -7)), '42% elapsed · 7pts under'));
+    it('estimating', () => assertEqual(paceFootnote(pace('estimating', -7)), 'Estimating…'));
+    it('limit', () => assertEqual(paceFootnote(pace('limit', 58)), 'Limit reached'));
+    it('neutral → empty', () => assertEqual(paceFootnote(pace('neutral')), ''));
+
+    it('translates through the injected translator', () => {
+        assertEqual(paceFootnote(pace('ok', 3), bracket), '[42% elapsed · [3pts ahead]]');
+        assertEqual(paceFootnote(pace('limit'), bracket), '[Limit reached]');
+    });
+});
+
+describe('paceFields', () => {
+    const palette = {green: '#g', yellow: '#y', orange: '#o', red: '#r', fg: '#fg'};
+    const pace = (state, extra = {}) => ({state, elapsedPct: 40, delta: -10, ratioPace: 'under', ...extra});
+
+    it('no pace → colour only', () => {
+        assertDeepEqual(paceFields(30, null, palette), {color: '#g', paceGlyph: ''});
+    });
+
+    it('ok → glyph, marker, over colour and footnote', () => {
+        const f = paceFields(30, pace('ok'), palette);
+        assertEqual(f.paceGlyph, '↓');
+        assertEqual(f.elapsedPct, 40);
+        assertEqual(typeof f.paceColor, 'string');
+        assertEqual(f.paceFootnote, '40% elapsed · 10pts under');
+    });
+
+    it('estimating keeps the marker but drops the glyph', () => {
+        const f = paceFields(30, pace('estimating'), palette);
+        assertEqual(f.paceGlyph, '');
+        assertEqual(f.elapsedPct, 40);
+        assertEqual(f.paceFootnote, 'Estimating…');
+    });
+
+    it('limit draws no marker and no glyph', () => {
+        const f = paceFields(100, pace('limit'), palette);
+        assertEqual(f.paceGlyph, '');
+        assertEqual('elapsedPct' in f, false);
+        assertEqual('paceColor' in f, false);
+        assertEqual(f.paceFootnote, 'Limit reached');
+    });
+
+    it('neutral draws no marker and an empty footnote', () => {
+        const f = paceFields(30, pace('neutral'), palette);
+        assertEqual('elapsedPct' in f, false);
+        assertEqual(f.paceFootnote, '');
+    });
+
+    it('footnote: false leaves the footnote out', () => {
+        assertEqual('paceFootnote' in paceFields(30, pace('ok'), palette, undefined, {footnote: false}), false);
+    });
+});
+
+describe('errorText — invalid mapping', () => {
+    it('translates the invalid-mapping code', () => {
+        const text = errorText({ok: false, kind: 'error', code: 'invalid-mapping', message: 'x'}, bracket);
+        assertEqual(text.startsWith('[The custom provider mapping'), true);
     });
 });
 

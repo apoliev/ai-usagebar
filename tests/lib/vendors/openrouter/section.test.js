@@ -3,6 +3,7 @@ import system from 'system';
 import {buildSection} from '../../../../lib/vendors/openrouter/section.js';
 import {combine} from '../../../../lib/vendors/openrouter/parser.js';
 import {defaultTheme} from '../../../../lib/theme.js';
+import {Severity, severityColor} from '../../../../lib/severity.js';
 import {describe, it, assertEqual, assertDeepEqual, summary} from '../../../_assert.js';
 
 const theme = defaultTheme();
@@ -30,6 +31,14 @@ describe('buildSection (openrouter)', () => {
         assertEqual(m.rows[3].text, 'Per-key limit');
         assertEqual(m.rows[4].text, '$24.50 of $50.00 remaining');
         assertEqual(m.rows[5].text, 'paid tier');
+    });
+
+    it('a negative balance renders as debt in the critical color', () => {
+        const s = combine({totalCredits: 10, totalUsage: 15.71},
+            {label: 'x', limit: null, limitRemaining: null, usageDaily: 0, usageWeekly: 0, usageMonthly: 0, isFreeTier: false});
+        const g = buildSection(s, META, NOW, theme).rows[0];
+        assertEqual(g.value, '-$5.71');
+        assertEqual(g.color, severityColor(Severity.CRITICAL, theme));
     });
 
     it('omits the per-key limit block when no limit', () => {

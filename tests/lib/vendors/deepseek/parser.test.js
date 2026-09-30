@@ -1,11 +1,11 @@
 import system from 'system';
 
 import {
-    parseBalance, deepseekSeverity, deepseekPeakUsage, formatMoney, placeholders,
-    snapshotToCacheJson, parseCacheJson, fakeSnapshot,
+    parseBalance, deepseekSeverity, deepseekPeakUsage, placeholders, SchemaError,
+    snapshotToCacheJson, parseCacheJson, fakeSnapshot, notifyRows, resetCredits,
 } from '../../../../lib/vendors/deepseek/parser.js';
 import {Severity} from '../../../../lib/severity.js';
-import {describe, it, assertEqual, summary} from '../../../_assert.js';
+import {describe, it, assertEqual, assertThrows, summary} from '../../../_assert.js';
 
 describe('parseBalance', () => {
     it('prefers the USD info', () => {
@@ -30,11 +30,20 @@ describe('parseBalance', () => {
         assertEqual(s.balance, 20);
     });
 
-    it('empty balance_infos → unavailable, zero, blank currency', () => {
-        const s = parseBalance('{"is_available":false,"balance_infos":[]}');
-        assertEqual(s.isAvailable, false);
-        assertEqual(s.balance, 0);
-        assertEqual(s.currency, '');
+    it('empty balance_infos → schema drift (no currency to scale by)', () =>
+        assertThrows(() => parseBalance('{"is_available":false,"balance_infos":[]}')));
+
+    it('a currency other than USD/CNY → SchemaError, never read on the USD scale', () => {
+        let threw = false;
+        try {
+            parseBalance(JSON.stringify({
+                is_available: true,
+                balance_infos: [{currency: 'EUR', total_balance: '3.00', granted_balance: '3.00', topped_up_balance: '0.00'}],
+            }));
+        } catch (e) {
+            threw = e instanceof SchemaError;
+        }
+        assertEqual(threw, true);
     });
 });
 
@@ -65,10 +74,20 @@ describe('deepseekPeakUsage', () => {
     });
 });
 
-describe('formatMoney', () => {
-    it('USD → $', () => assertEqual(formatMoney(5, 'USD'), '$5.00'));
-    it('CNY → ¥', () => assertEqual(formatMoney(20, 'CNY'), '¥20.00'));
-    it('other → {v} {cur}', () => assertEqual(formatMoney(3, 'EUR'), '3.00 EUR'));
+describe('corrupt payloads throw instead of coining a zero balance', () => {
+    it('parseBalance rejects unparseable, non-object and non-numeric bodies', () => {
+        assertThrows(() => parseBalance('not json'));
+        assertThrows(() => parseBalance('[]'));
+        assertThrows(() => parseBalance(JSON.stringify({is_available: true,
+            balance_infos: [{currency: 'USD', total_balance: 'lots', granted_balance: '0', topped_up_balance: '0'}]})));
+    });
+
+    it('parseCacheJson rejects a corrupt cache', () => {
+        assertThrows(() => parseCacheJson('{'));
+        assertThrows(() => parseCacheJson('null'));
+        assertThrows(() => parseCacheJson('{"is_available":true,"balance":"5","granted":0,"topped_up":0,"currency":"USD"}'));
+        assertThrows(() => parseCacheJson('{"is_available":true,"balance":5,"granted":0,"topped_up":0,"currency":""}'));
+    });
 });
 
 describe('cache JSON round-trip', () => {
@@ -86,6 +105,8 @@ describe('placeholders', () => {
     it('emits ds_* family + cross-vendor aliases', () => {
         const m = placeholders({isAvailable: true, balance: 5, granted: 5, toppedUp: 0, currency: 'USD'}, new Date());
         assertEqual(m.get('ds_balance'), '$5.00');
+        assertEqual(placeholders({isAvailable: true, balance: -5.71, granted: 0, toppedUp: 0, currency: 'CNY'}, new Date())
+            .get('ds_balance'), '-¥5.71');
         assertEqual(m.get('ds_available'), 'up');
         assertEqual(m.get('currency'), 'USD');
         assertEqual(m.get('plan'), 'DeepSeek');
@@ -105,6 +126,22 @@ describe('fakeSnapshot', () => {
 
     it('leaves a critical balance at high pct', () => {
         assertEqual(deepseekSeverity(fakeSnapshot(100)), Severity.CRITICAL);
+    });
+});
+
+describe('placeholders — elapsed aliases', () => {
+    it('no window → 0', () => {
+        const m = placeholders({isAvailable: true, balance: 5, granted: 5, toppedUp: 0, currency: 'USD'}, new Date());
+        assertEqual(m.get('session_elapsed'), '0');
+        assertEqual(m.get('weekly_elapsed'), '0');
+    });
+});
+
+describe('notifyRows / resetCredits', () => {
+    it('a balance has nothing to notify', () => {
+        const snap = {isAvailable: true, balance: 0.5, granted: 0, toppedUp: 0.5, currency: 'USD'};
+        assertEqual(notifyRows(snap).length, 0);
+        assertEqual(resetCredits(snap).length, 0);
     });
 });
 

@@ -3,6 +3,7 @@ import Gio from 'gi://Gio';
 import system from 'system';
 
 import {Cache} from '../../../../lib/cache.js';
+import {parseUsage, snapshotToCacheJson} from '../../../../lib/vendors/anthropic/parser.js';
 import {fetchSnapshot, USAGE_URL, USAGE_BETA_HEADER, USAGE_USER_AGENT} from '../../../../lib/vendors/anthropic/main.js';
 import {readCreds, TOKEN_URL} from '../../../../lib/oauth/anthropic.js';
 import {describe, it, assertEqual, summary} from '../../../_assert.js';
@@ -11,6 +12,8 @@ const USAGE = JSON.stringify({
     five_hour: {utilization: 42, resets_at: '2026-05-23T17:30:00Z'},
     seven_day: {utilization: 10},
 });
+
+const cached = (raw) => snapshotToCacheJson(parseUsage(raw, 'Pro 5x'));
 
 function runSync(promise) {
     const loop = GLib.MainLoop.new(null, false);
@@ -44,6 +47,19 @@ function rmRf(path) {
         en.close(null);
     }
     try { f.delete(null); } catch (_) { /* best-effort */ }
+}
+
+function chmod(path, mode) {
+    Gio.File.new_for_path(path).set_attribute_uint32('unix::mode', mode, Gio.FileQueryInfoFlags.NONE, null);
+}
+
+function writeCreds(dir, rel, {expiresAt, subscriptionType = 'pro'}) {
+    const path = GLib.build_filenamev([dir, rel]);
+    GLib.mkdir_with_parents(GLib.path_get_dirname(path), 0o755);
+    const doc = {claudeAiOauth: {accessToken: 'at', refreshToken: 'rt', expiresAt, subscriptionType, rateLimitTier: ''}};
+    Gio.File.new_for_path(path).replace_contents(
+        new TextEncoder().encode(JSON.stringify(doc)), null, false, Gio.FileCreateFlags.NONE, null);
+    return path;
 }
 
 function withTemp(fn, {expiresAt = 9_999_999_999_000} = {}) {
@@ -107,7 +123,7 @@ function backdate(cache, secs) {
 
 describe('fetchSnapshot', () => {
     it('fresh cache skips the network', withTemp(({cache, credsPath}) => {
-        cache.writePayload(USAGE);
+        cache.writePayload(cached(USAGE));
         const http = httpStub(res(200, USAGE));
         const r = runSync(fetchSnapshot({cache, http, credsPath}));
         assertEqual(http.calls.length, 0, 'no HTTP call when cache is fresh');
@@ -125,6 +141,8 @@ describe('fetchSnapshot', () => {
         assertEqual(http.calls[0].headers['anthropic-beta'], USAGE_BETA_HEADER);
         assertEqual(http.calls[0].headers['User-Agent'], USAGE_USER_AGENT);
         assertEqual(http.calls[0].headers['Content-Type'], 'application/json');
+        assertEqual(http.calls[0].url.endsWith('?cedar_ember=1'), true);
+        assertEqual(http.calls[0].headers['User-Agent'], 'claude-cli/2.1.281 (external, cli)');
         assertEqual(r.ok, true);
         assertEqual(r.stale, false);
         assertEqual(r.cacheAgeMs, 0);
@@ -147,8 +165,61 @@ describe('fetchSnapshot', () => {
         assertEqual(runSync(readCreds(credsPath)).oauth.accessToken, 'new-at');
     }, {expiresAt: 0}));
 
+    it('usage failure with no cache carries the plan from the credentials', withTemp(({cache, credsPath}) => {
+        const r = runSync(fetchSnapshot({cache, http: httpStub(res(500, 'boom')), credsPath}));
+        assertEqual(r.ok, false);
+        assertEqual(r.kind, 'error');
+        assertEqual(r.plan, 'Pro 5x');
+    }));
+
+    it('an unknown plan is omitted from the error', withTemp(({cache, dir}) => {
+        const credsPath = writeCreds(dir, 'bare.json', {expiresAt: 9_999_999_999_000, subscriptionType: ''});
+        const r = runSync(fetchSnapshot({cache, http: httpStub(res(500, 'boom')), credsPath}));
+        assertEqual(r.kind, 'error');
+        assertEqual('plan' in r, false);
+    }));
+
+    it('an unsaved rotated refresh token is an auth error with stale fallback', withTemp(({cache, dir}) => {
+        cache.writePayload(cached(USAGE));
+        backdate(cache, 120);
+        const credsPath = writeCreds(dir, 'ro/creds.json', {expiresAt: 0});
+        chmod(GLib.path_get_dirname(credsPath), 0o555);
+        try {
+            const http = httpStub([res(200, '{"access_token":"new-at","refresh_token":"new-rt","expires_in":3600}'), res(200, USAGE)]);
+            const r = runSync(fetchSnapshot({cache, http, credsPath}));
+            assertEqual(http.calls.length, 1);
+            assertEqual(r.ok, true);
+            assertEqual(r.stale, true);
+            assertEqual(r.lastError.body.startsWith('refreshed token could not be saved'), true);
+        } finally {
+            chmod(GLib.path_get_dirname(credsPath), 0o755);
+        }
+    }));
+
+    it('an unsaved access token alone stays best-effort', withTemp(({cache, dir}) => {
+        const credsPath = writeCreds(dir, 'ro/creds.json', {expiresAt: 0});
+        chmod(GLib.path_get_dirname(credsPath), 0o555);
+        try {
+            const http = httpStub([res(200, '{"access_token":"new-at","expires_in":3600}'), res(200, USAGE)]);
+            const r = runSync(fetchSnapshot({cache, http, credsPath}));
+            assertEqual(http.calls.length, 2);
+            assertEqual(http.calls[1].headers.Authorization, 'Bearer new-at');
+            assertEqual(r.ok, true);
+            assertEqual(r.stale, false);
+        } finally {
+            chmod(GLib.path_get_dirname(credsPath), 0o755);
+        }
+    }));
+
+    it('a cached snapshot takes its plan from the current credentials', withTemp(({cache, credsPath}) => {
+        cache.writePayload(snapshotToCacheJson(parseUsage(USAGE, 'Old Plan')));
+        const r = runSync(fetchSnapshot({cache, http: httpStub(res(200, USAGE)), credsPath}));
+        assertEqual(r.ok, true);
+        assertEqual(r.snapshot.plan, 'Pro 5x');
+    }));
+
     it('HTTP 429 falls back to stale cache with lastError.code 429', withTemp(({cache, credsPath}) => {
-        cache.writePayload(USAGE);
+        cache.writePayload(cached(USAGE));
         backdate(cache, 120); // older than the 60s TTL → not "fresh"
         const http = httpStub(res(429, 'slow down'));
         const r = runSync(fetchSnapshot({cache, http, credsPath}));
@@ -158,8 +229,31 @@ describe('fetchSnapshot', () => {
         assertEqual(r.lastError.code, 429);
     }));
 
+    it('after a 429 the next poll makes no request, token refresh included', withTemp(({cache, credsPath}) => {
+        cache.writePayload(cached(USAGE));
+        backdate(cache, 120);
+        runSync(fetchSnapshot({cache, http: httpStub(res(429, 'slow down')), credsPath}));
+
+        const http = httpStub(res(200, USAGE));
+        const r = runSync(fetchSnapshot({cache, http, credsPath}));
+        assertEqual(http.calls.length, 0);
+        assertEqual(r.ok, true);
+        assertEqual(r.stale, true);
+        assertEqual(r.lastError.code, 'rate-limited');
+        assertEqual(r.lastError.retryInMs > 4 * 60 * 1000, true);
+    }));
+
+    it('under backoff with no cache → rate-limited error, no request', withTemp(({cache, credsPath}) => {
+        cache.writeRetryAfter(Date.now() + 60_000);
+        const http = httpStub(res(200, USAGE));
+        const r = runSync(fetchSnapshot({cache, http, credsPath}));
+        assertEqual(http.calls.length, 0);
+        assertEqual(r.ok, false);
+        assertEqual(r.code, 'rate-limited');
+    }, {expiresAt: 0}));
+
     it('transient failure with cache → silent stale (no last_error)', withTemp(({cache, credsPath}) => {
-        cache.writePayload(USAGE);
+        cache.writePayload(cached(USAGE));
         backdate(cache, 120);
         const http = httpStub(resTransport());
         const r = runSync(fetchSnapshot({cache, http, credsPath}));

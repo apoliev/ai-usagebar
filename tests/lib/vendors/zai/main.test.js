@@ -3,6 +3,7 @@ import Gio from 'gi://Gio';
 import system from 'system';
 
 import {Cache} from '../../../../lib/cache.js';
+import {parseEnvelope, snapshotToCacheJson} from '../../../../lib/vendors/zai/parser.js';
 import {fetchSnapshot, QUOTA_URL} from '../../../../lib/vendors/zai/main.js';
 import {describe, it, assertEqual, summary} from '../../../_assert.js';
 
@@ -18,8 +19,10 @@ const LIVE = JSON.stringify({
     success: true,
 });
 const SEED = JSON.stringify({
-    code: 200, data: {limits: [{type: 'TOKENS_LIMIT', percentage: 10}], level: 'lite'}, success: true,
+    code: 200, data: {limits: [{type: 'TOKENS_LIMIT', unit: 3, percentage: 10}], level: 'lite'}, success: true,
 });
+
+const cached = (raw) => snapshotToCacheJson(parseEnvelope(raw, null));
 
 function runSync(promise) {
     const loop = GLib.MainLoop.new(null, false);
@@ -107,7 +110,7 @@ describe('fetchSnapshot (zai)', () => {
     }));
 
     it('HTTP 401 falls back to stale cache with lastError.code 401', withTemp(({cache}) => {
-        cache.writePayload(SEED);
+        cache.writePayload(cached(SEED));
         backdate(cache, 120);
         const http = httpStub(res(401, '{"code":401,"msg":"Unauthorized"}'));
         const r = runSync(fetchSnapshot({cache, http, apiKey: 'k'}));
@@ -115,6 +118,34 @@ describe('fetchSnapshot (zai)', () => {
         assertEqual(r.stale, true);
         assertEqual(r.snapshot.session.utilizationPct, 10);
         assertEqual(r.lastError.code, 401);
+    }));
+
+    it('a 200 with success:false is not cached and falls back to the good cache', withTemp(({cache}) => {
+        cache.writePayload(cached(SEED));
+        backdate(cache, 120);
+        const http = httpStub(res(200, '{"code":1001,"msg":"Token expired","success":false,"data":null}'));
+        const r = runSync(fetchSnapshot({cache, http, apiKey: 'k'}));
+        assertEqual(r.ok, true);
+        assertEqual(r.stale, true);
+        assertEqual(r.snapshot.session.utilizationPct, 10);
+        assertEqual(new TextDecoder().decode(runSync(cache.maybePayload())), cached(SEED));
+    }));
+
+    it('a 200 with data:null and no cache → error, nothing cached', withTemp(({cache}) => {
+        const http = httpStub(res(200, '{"code":200,"success":true,"data":null}'));
+        const r = runSync(fetchSnapshot({cache, http, apiKey: 'k'}));
+        assertEqual(r.ok, false);
+        assertEqual(r.kind, 'error');
+        assertEqual(runSync(cache.maybePayload()), null);
+    }));
+
+    it('an invalid envelope already in the cache is never served', withTemp(({cache}) => {
+        cache.writePayload('{"code":500,"success":false}');
+        const http = httpStub(res(200, LIVE));
+        const r = runSync(fetchSnapshot({cache, http, apiKey: 'k'}));
+        assertEqual(http.calls.length, 1);
+        assertEqual(r.ok, true);
+        assertEqual(r.snapshot.session.utilizationPct, 42);
     }));
 
     it('transient failure with no cache → kind:loading (never error)', withTemp(({cache}) => {
@@ -127,12 +158,12 @@ describe('fetchSnapshot (zai)', () => {
     }));
 
     it('HTTP failure with no cache → kind:error with a message', withTemp(({cache}) => {
-        const http = httpStub(res(401, '{"code":401,"msg":"Unauthorized"}'));
+        const http = httpStub(res(500, '{"code":500,"msg":"boom"}'));
         const r = runSync(fetchSnapshot({cache, http, apiKey: 'k'}));
         assertEqual(r.ok, false);
         assertEqual(r.kind, 'error');
         assertEqual(typeof r.message, 'string');
-        assertEqual(r.message.includes('401'), true);
+        assertEqual(r.message.includes('500'), true);
     }));
 });
 

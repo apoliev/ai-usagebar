@@ -3,7 +3,7 @@ import system from 'system';
 import {
     parseCredits, parseKey, combine, balance, consumedPct,
     snapshotToCacheJson, parseCacheJson, openrouterSeverity, openrouterPeakUsage, placeholders,
-    fakeSnapshot,
+    fakeSnapshot, notifyRows, resetCredits,
 } from '../../../../lib/vendors/openrouter/parser.js';
 import {substitute} from '../../../../lib/format.js';
 import {Severity} from '../../../../lib/severity.js';
@@ -35,6 +35,12 @@ describe('combine', () => {
         assertEqual(balance(snap), 70);
         assertEqual(consumedPct(snap), 30);
         assertEqual(snap.usageMonthly, 30);
+    });
+
+    it('sanitizes the key label', () => {
+        const key = parseKey(JSON.stringify({data: {label: 'pr‮od\u0000', limit: null, limit_remaining: null,
+            usage_daily: 0, usage_weekly: 0, usage_monthly: 0, is_free_tier: false}}));
+        assertEqual(key.label, 'prod');
     });
 
     it('empty label → OpenRouter', () => {
@@ -69,6 +75,24 @@ describe('openrouterSeverity', () => {
         assertEqual(openrouterSeverity(crit), Severity.CRITICAL);
         const mid = combine({totalCredits: 100, totalUsage: 60}, {label: '', limit: null, limitRemaining: null, usageDaily: 0, usageWeekly: 0, usageMonthly: 0, isFreeTier: false});
         assertEqual(openrouterSeverity(mid), Severity.MID);
+    });
+});
+
+describe('openrouterSeverity — negative balance', () => {
+    const overrun = (credits, usage) => combine({totalCredits: credits, totalUsage: usage},
+        {label: '', limit: null, limitRemaining: null, usageDaily: 0, usageWeekly: 0, usageMonthly: 0, isFreeTier: false});
+
+    it('a usage overrun shows a negative balance and is critical', () => {
+        const snap = overrun(10, 15.71);
+        assertEqual(balance(snap), 10 - 15.71);
+        assertEqual(placeholders(snap, new Date()).get('or_balance'), '-$5.71');
+        assertEqual(openrouterSeverity(snap), Severity.CRITICAL);
+    });
+
+    it('is critical even with no credits (consumedPct 0)', () => {
+        const snap = overrun(0, 5);
+        assertEqual(consumedPct(snap), 0);
+        assertEqual(openrouterSeverity(snap), Severity.CRITICAL);
     });
 });
 
@@ -111,6 +135,29 @@ describe('fakeSnapshot', () => {
         assertEqual(consumedPct(s), 23);
         assertEqual(balance(s), 77);
         assertEqual(openrouterPeakUsage(s).percent, 23);
+    });
+});
+
+describe('placeholders — elapsed aliases', () => {
+    it('no window → 0', () => {
+        const snap = combine({totalCredits: 100, totalUsage: 25.5},
+            {label: 'prod', limit: null, limitRemaining: null, usageDaily: 0, usageWeekly: 0, usageMonthly: 0, isFreeTier: false});
+        const m = placeholders(snap, new Date());
+        assertEqual(m.get('session_elapsed'), '0');
+        assertEqual(m.get('weekly_elapsed'), '0');
+    });
+});
+
+describe('notifyRows / resetCredits', () => {
+    it('one Balance row with the consumed percentage', () => {
+        const snap = combine({totalCredits: 100, totalUsage: 98},
+            {label: 'prod', limit: null, limitRemaining: null, usageDaily: 0, usageWeekly: 0, usageMonthly: 0, isFreeTier: false});
+        const rows = notifyRows(snap);
+        assertEqual(rows.length, 1);
+        assertEqual(rows[0].key, 'balance');
+        assertEqual(rows[0].percent, 98);
+        assertEqual(rows[0].resetsAt, null);
+        assertEqual(resetCredits(snap).length, 0);
     });
 });
 

@@ -41,6 +41,8 @@ function rowHeader(iconName, title, opts = {}) {
     col.add_child(label(title, {styleClass: 'aiusagebar-row-title'}));
     if (opts.subtitle)
         col.add_child(label(opts.subtitle, {styleClass: 'aiusagebar-dim aiusagebar-row-subtitle'}));
+    if (opts.footnote)
+        col.add_child(label(opts.footnote, {styleClass: 'aiusagebar-dim aiusagebar-row-subtitle'}));
     head.add_child(col);
 
     if (opts.trailing)
@@ -58,6 +60,7 @@ function buildWindowRow(row, showPace) {
     const pctText = row.paceGlyph ? `${row.pct}% ${row.paceGlyph}` : `${row.pct}%`;
     r.add_child(rowHeader(row.icon, row.title, {
         subtitle: row.subtitle,
+        footnote: row.paceFootnote,
         trailing: pctText,
         trailingColor: row.color,
     }));
@@ -89,6 +92,25 @@ function buildTextLine(row) {
     else
         line.add_child(label(row.text, dim ? {styleClass: 'aiusagebar-dim'} : null));
     return line;
+}
+
+function buildGroupedRow(row) {
+    const r = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'aiusagebar-grouped-row'});
+    const head = new St.BoxLayout({style_class: 'aiusagebar-row', x_expand: true});
+    const name = label(row.label, {styleClass: 'aiusagebar-dim'});
+    name.x_expand = true;
+    head.add_child(name);
+    head.add_child(label(row.valueText));
+    r.add_child(head);
+
+    const bar = makeBar(row.pct, row.color);
+    bar.add_style_class_name('aiusagebar-grouped-bar');
+    bar.set_style(`background-color: ${row.trackColor};`);
+    r.add_child(bar);
+
+    if (row.detail)
+        r.add_child(label(row.detail, {styleClass: 'aiusagebar-dim aiusagebar-grouped-detail'}));
+    return r;
 }
 
 function buildHttpError(row) {
@@ -153,6 +175,18 @@ export function renderSection(menuSection, model, showPace = false) {
         case 'text':
             card = null;
             container.add_child(buildTextLine(row));
+            break;
+        case 'spacer':
+            card = null;
+            container.add_child(new St.Widget({style_class: 'aiusagebar-spacer', x_expand: true}));
+            break;
+        case 'group-heading':
+            card = null;
+            container.add_child(label(row.label, {styleClass: 'aiusagebar-group-heading'}));
+            break;
+        case 'grouped':
+            card = null;
+            container.add_child(buildGroupedRow(row));
             break;
         case 'http-error':
             card = null;

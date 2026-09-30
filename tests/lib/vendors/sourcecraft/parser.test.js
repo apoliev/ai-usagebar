@@ -1,8 +1,11 @@
 import system from 'system';
 
-import {parseUsage, primaryQuota, peakUsage, severity, placeholders, fakeSnapshot} from '../../../../lib/vendors/sourcecraft/parser.js';
+import {
+    parseUsage, primaryQuota, peakUsage, severity, placeholders, fakeSnapshot,
+    notifyRows, resetCredits, snapshotToCacheJson, parseCacheJson, CACHE_VERSION,
+} from '../../../../lib/vendors/sourcecraft/parser.js';
 import {Severity} from '../../../../lib/severity.js';
-import {describe, it, assertEqual, assertThrows, summary} from '../../../_assert.js';
+import {describe, it, assertEqual, assertDeepEqual, assertThrows, summary} from '../../../_assert.js';
 
 const parse = quotas => parseUsage(JSON.stringify({quotas}), 'example');
 
@@ -67,6 +70,55 @@ describe('SourceCraft quotas', () => {
         const s = parseUsage(new TextEncoder().encode('{"quotas":[]}'), 'example');
         assertEqual(s.organization, 'example');
         assertEqual(peakUsage(fakeSnapshot(25)).percent, 25);
+    });
+});
+
+describe('SourceCraft notifyRows / resetCredits', () => {
+    it('lists one row per reported quota with an organization-scoped key', () => {
+        const s = parse([
+            {quota_id: 'src.cuPrepaidRaw.count', usage: 95, limit: 100},
+            {quota_id: 'src.cuOneTimeGift.count', usage: 10, limit: 100},
+            {quota_id: 'src.cuFlexible.count', usage: 0, limit: 0},
+        ]);
+        const rows = notifyRows(s, t => `t:${t}`);
+        assertDeepEqual(rows.map(r => r.key), ['example:monthly', 'example:bonus']);
+        assertDeepEqual(rows.map(r => r.percent), [95, 10]);
+        assertDeepEqual(rows.map(r => r.resetsAt), [null, null]);
+        assertEqual(rows[0].label, 't:Monthly AI quota');
+        assertEqual(rows[1].label, 't:Bonus AI quota');
+    });
+
+    it('another organization yields different keys, so neither silences the other', () => {
+        const quotas = [{quota_id: 'src.cuPrepaidRaw.count', usage: 98, limit: 100}];
+        const a = notifyRows(parseUsage(JSON.stringify({quotas}), 'org-a'));
+        const b = notifyRows(parseUsage(JSON.stringify({quotas}), 'org-b'));
+        assertEqual(a[0].key !== b[0].key, true);
+    });
+
+    it('no quotas → no rows; reset credits never appear', () => {
+        assertDeepEqual(notifyRows(parse([])), []);
+        assertDeepEqual(resetCredits(parse([
+            {quota_id: 'src.cuPrepaidRaw.count', usage: 1, limit: 2},
+        ])), []);
+    });
+});
+
+describe('SourceCraft snapshot cache', () => {
+    it('round-trips the snapshot and re-applies the current organization', () => {
+        const s = parse([
+            {quota_id: 'src.cuPrepaidRaw.count', usage: 25, limit: 100},
+            {quota_id: 'src.cuFlexible.count', usage: 0, limit: 0},
+        ]);
+        const back = parseCacheJson(snapshotToCacheJson(s));
+        assertDeepEqual(back, s);
+        assertEqual(back.quotas[0].percent, 25);
+        assertEqual(back.quotas[1].percent, null);
+    });
+
+    it('a raw body or another version is rejected as corrupt', () => {
+        assertThrows(() => parseCacheJson('{"quotas":[]}'));
+        assertThrows(() => parseCacheJson(JSON.stringify({cacheVersion: CACHE_VERSION + 1, snapshot: {}})));
+        assertThrows(() => parseCacheJson('not json'));
     });
 });
 

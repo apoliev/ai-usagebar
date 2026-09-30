@@ -48,6 +48,7 @@ describe('vendorLabel — custom provider', () => {
 describe('vendorIconName', () => {
     it('a vendor with a mark', () => assertEqual(vendorIconName('ollama'), 'ollama-symbolic'));
     it('the custom provider falls back to the generic mark', () => assertEqual(vendorIconName('custom'), 'ai-symbolic'));
+    it('SourceCraft has no mark of its own and falls back too', () => assertEqual(vendorIconName('sourcecraft'), 'ai-symbolic'));
     it('an unknown id falls back too', () => assertEqual(vendorIconName('gemini'), 'ai-symbolic'));
 });
 

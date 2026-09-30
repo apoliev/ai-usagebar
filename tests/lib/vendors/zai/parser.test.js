@@ -25,10 +25,10 @@ function env(limits, data = {}) {
 }
 
 describe('parseEnvelope', () => {
-    it('supports credit-based plans with windows returned out of reset order', () => {
-        const s = parseEnvelope(JSON.stringify({data: {level: 'lite', limits: [
-            {type: 'CREDIT_LIMIT', percentage: 65, nextResetTime: 1779792169974},
-            {type: 'CREDIT_LIMIT', percentage: 25, nextResetTime: 1779702169974},
+    it('supports credit-based plans: the unit, not the order, picks the window', () => {
+        const s = parseEnvelope(JSON.stringify({code: 200, success: true, data: {level: 'lite', limits: [
+            {type: 'CREDIT_LIMIT', unit: 6, percentage: 65, nextResetTime: 1779792169974},
+            {type: 'CREDIT_LIMIT', unit: 3, percentage: 25, nextResetTime: 1779702169974},
             {type: 'TIME_LIMIT', percentage: 10},
         ]}}));
         assertEqual(s.plan, 'GLM Coding Lite');
@@ -38,14 +38,13 @@ describe('parseEnvelope', () => {
         assertEqual(s.weekly.windowMs, WEEKLY_MS);
         assertEqual(s.mcp.utilizationPct, 10);
     });
-    it('keeps token limits preferred when credit limits are also present', () => {
-        const s = parseEnvelope(JSON.stringify({data: {limits: [
-            {type: 'CREDIT_LIMIT', percentage: 99},
-            {type: 'TOKENS_LIMIT', percentage: 20},
-            {type: 'TOKENS_LIMIT', percentage: 30},
-        ]}}));
+    it('reads token and credit limits side by side, each identified by its unit', () => {
+        const s = parseEnvelope(env([
+            {type: 'CREDIT_LIMIT', unit: 6, percentage: 99},
+            {type: 'TOKENS_LIMIT', unit: 3, percentage: 20},
+        ]));
         assertEqual(s.session.utilizationPct, 20);
-        assertEqual(s.weekly.utilizationPct, 30);
+        assertEqual(s.weekly.utilizationPct, 99);
     });
     it('parses the real shape into GLM Coding Pro + 3 windows', () => {
         const s = parseEnvelope(REAL, null);

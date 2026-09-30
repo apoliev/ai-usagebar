@@ -1,13 +1,13 @@
 import system from 'system';
 
-import {VENDOR_IDS, VENDOR_LABELS, isVendorId, vendorLabel} from '../lib/vendors.js';
+import {VENDOR_IDS, VENDOR_LABELS, isVendorId, vendorLabel, vendorIconName} from '../lib/vendors.js';
 import {describe, it, assertEqual, assertDeepEqual, summary} from './_assert.js';
 
 describe('VENDOR_IDS — canonical order', () => {
     it('lists vendors in fixed order', () =>
         assertDeepEqual(
             [...VENDOR_IDS],
-            ['anthropic', 'openai', 'zai', 'openrouter', 'deepseek', 'kimi', 'sourcecraft']
+            ['anthropic', 'openai', 'zai', 'openrouter', 'deepseek', 'kimi', 'sourcecraft', 'ollama', 'custom']
         ));
     it('is frozen', () => assertEqual(Object.isFrozen(VENDOR_IDS), true));
 });
@@ -19,7 +19,7 @@ describe('VENDOR_LABELS', () => {
     it('is ordered to match VENDOR_IDS', () =>
         assertDeepEqual(
             [...VENDOR_LABELS],
-            ['Anthropic', 'OpenAI', 'Z.AI', 'OpenRouter', 'DeepSeek', 'Kimi', 'SourceCraft']
+            ['Anthropic', 'OpenAI', 'Z.AI', 'OpenRouter', 'DeepSeek', 'Kimi', 'SourceCraft', 'Ollama', 'Custom']
         ));
 });
 
@@ -36,6 +36,20 @@ describe('vendorLabel', () => {
         assertDeepEqual(VENDOR_IDS.map(vendorLabel), [...VENDOR_LABELS]));
     it('falls back to the id for an unknown vendor', () =>
         assertEqual(vendorLabel('gemini'), 'gemini'));
+});
+
+describe('vendorLabel — custom provider', () => {
+    const config = {vendors: {custom: {name: 'My Tool'}}};
+    it('uses the configured name', () => assertEqual(vendorLabel('custom', config), 'My Tool'));
+    it('falls back to Custom without a config', () => assertEqual(vendorLabel('custom'), 'Custom'));
+    it('leaves other vendors alone', () => assertEqual(vendorLabel('openai', config), 'OpenAI'));
+});
+
+describe('vendorIconName', () => {
+    it('a vendor with a mark', () => assertEqual(vendorIconName('ollama'), 'ollama-symbolic'));
+    it('the custom provider falls back to the generic mark', () => assertEqual(vendorIconName('custom'), 'ai-symbolic'));
+    it('SourceCraft has no mark of its own and falls back too', () => assertEqual(vendorIconName('sourcecraft'), 'ai-symbolic'));
+    it('an unknown id falls back too', () => assertEqual(vendorIconName('gemini'), 'ai-symbolic'));
 });
 
 system.exit(summary());

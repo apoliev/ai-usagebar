@@ -1,7 +1,9 @@
 import system from 'system';
 
 import {ADAPTERS, getAdapter} from '../../../lib/vendors/registry.js';
-import {VENDOR_IDS} from '../../../lib/vendors.js';
+import GLib from 'gi://GLib';
+
+import {VENDOR_IDS, GENERIC_ICON_VENDORS, vendorIconName} from '../../../lib/vendors.js';
 import {describe, it, assertEqual, assertDeepEqual, summary} from '../../_assert.js';
 
 const SHAPE = {
@@ -13,12 +15,16 @@ const SHAPE = {
     severity: 'function',
     peakUsage: 'function',
     placeholders: 'function',
+    notifyRows: 'function',
+    resetCredits: 'function',
     buildSection: 'function',
 };
 
 // Optional, dev-only hooks an adapter may expose (e.g. AI_USAGEBAR_FAKE_PCT).
 const OPTIONAL_SHAPE = {
     fakeSnapshot: 'function',
+    // A badge derived from the config, for a provider the user names.
+    shortCode: 'function',
 };
 
 describe('ADAPTERS structure', () => {
@@ -66,6 +72,29 @@ describe('getAdapter', () => {
     it('falls back to anthropic for an unknown id', () => {
         assertEqual(getAdapter('nope'), ADAPTERS.anthropic);
     });
+});
+
+function iconsDir() {
+    const url = import.meta.url;
+    const path = url.startsWith('file://') ? url.slice('file://'.length) : url;
+    let dir = GLib.path_get_dirname(path);
+    for (let i = 0; i < 3; i++)
+        dir = GLib.path_get_dirname(dir);
+    return GLib.build_filenamev([dir, 'icons']);
+}
+
+describe('vendor marks', () => {
+    for (const id of VENDOR_IDS) {
+        it(`${id} has icons/${vendorIconName(id)}.svg`, () => {
+            const path = GLib.build_filenamev([iconsDir(), `${vendorIconName(id)}.svg`]);
+            assertEqual(GLib.file_test(path, GLib.FileTest.IS_REGULAR), true, path);
+        });
+
+        it(`${id} has its own mark or is an explicit fallback`, () => {
+            const own = GLib.file_test(GLib.build_filenamev([iconsDir(), `${id}-symbolic.svg`]), GLib.FileTest.IS_REGULAR);
+            assertEqual(own !== GENERIC_ICON_VENDORS.includes(id), true, id);
+        });
+    }
 });
 
 system.exit(summary());

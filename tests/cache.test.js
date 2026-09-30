@@ -138,26 +138,28 @@ describe('Cache', () => {
         assertEqual(runSync(c.readLastError()), null);
     }));
 
-    it('writeNotified / readNotified round-trip; absent → null; writePayload keeps .notified', withTempCache((dir) => {
+    it('writeNotified / readNotified round-trip JSON; absent or old format → empty; writePayload keeps .notified', withTempCache((dir) => {
         const c = Cache.forVendor('test');
-        assertEqual(runSync(c.readNotified()), null);
+        const empty = {version: 2, entries: {}};
+        assertDeepEqual(runSync(c.readNotified()), empty);
 
-        c.writeNotified({percent: 95, at: 1700000000000, windowKey: '2026-06-08T12:00:00.000Z'});
-        assertDeepEqual(runSync(c.readNotified()),
-            {percent: 95, at: 1700000000000, windowKey: '2026-06-08T12:00:00.000Z'});
+        const state = {version: 2, entries: {'Claude::session': {notifiedAt: 1700000000000, resetAt: null}}};
+        c.writeNotified(state);
+        assertDeepEqual(runSync(c.readNotified()), state);
 
         const path = GLib.build_filenamev([dir, 'ai-usagebar', 'test', '.notified']);
         const [ok, contents] = Gio.File.new_for_path(path).load_contents(null);
         assertEqual(ok, true);
-        assertEqual(bytesToString(contents), '95\n1700000000000\n2026-06-08T12:00:00.000Z');
+        assertDeepEqual(JSON.parse(bytesToString(contents)), state);
 
-        // No percentage / no window key (e.g. DeepSeek) round-trip as null / ''.
-        c.writeNotified({percent: null, at: 1700000000000, windowKey: ''});
-        assertDeepEqual(runSync(c.readNotified()), {percent: null, at: 1700000000000, windowKey: ''});
-
-        // The debounce state must survive a payload write (unlike .stale/.last_error).
+        // The dedupe state must survive a payload write (unlike .stale/.last_error).
         c.writePayload('{}');
-        assertDeepEqual(runSync(c.readNotified()), {percent: null, at: 1700000000000, windowKey: ''});
+        assertDeepEqual(runSync(c.readNotified()), state);
+
+        // The three-line format of older releases is discarded.
+        Gio.File.new_for_path(path).replace_contents(new TextEncoder().encode('95\n1700000000000\n'),
+            null, false, Gio.FileCreateFlags.NONE, null);
+        assertDeepEqual(runSync(c.readNotified()), empty);
     }));
 
     it('atomic write: orphan sibling tempfile leaves usage.json unchanged', withTempCache(() => {
@@ -203,6 +205,46 @@ describe('Cache', () => {
             names.push(child.get_name());
         en.close(null);
         assertDeepEqual(names, ['data.bin']);
+    }));
+});
+
+describe('Cache retry_after sidecar', () => {
+    it('round-trips an epoch-seconds marker as ms', withTempCache(() => {
+        const c = Cache.forVendor('rt');
+        assertEqual(runSync(c.readRetryAfter()), null);
+        c.writeRetryAfter(1_800_000_000_500);
+        assertEqual(runSync(c.readRetryAfter()), 1_800_000_001_000);
+        c.clearRetryAfter();
+        assertEqual(runSync(c.readRetryAfter()), null);
+    }));
+
+    it('a corrupt marker reads as no backoff', withTempCache((dir) => {
+        const c = Cache.forVendor('rt');
+        c.ensureDir();
+        Gio.File.new_for_path(GLib.build_filenamev([dir, 'ai-usagebar', 'rt', '.retry_after'])).replace_contents(
+            new TextEncoder().encode('soon'), null, false, Gio.FileCreateFlags.NONE, null);
+        assertEqual(runSync(c.readRetryAfter()), null);
+    }));
+
+    it('writeLastError(429) arms it; other codes do not', withTempCache(() => {
+        const c = Cache.forVendor('rt');
+        c.writeLastError(500, 'down');
+        assertEqual(runSync(c.readRetryAfter()), null);
+        const before = Date.now();
+        c.writeLastError(429, 'slow down');
+        const until = runSync(c.readRetryAfter());
+        assertEqual(until >= before + 5 * 60 * 1000 && until <= Date.now() + 5 * 60 * 1000 + 1000, true);
+    }));
+
+    it('writePayload and clearLastError clear it', withTempCache(() => {
+        const c = Cache.forVendor('rt');
+        c.writeLastError(429, 'x');
+        c.writePayload('{}');
+        assertEqual(runSync(c.readRetryAfter()), null);
+        c.writeLastError(429, 'x');
+        c.clearLastError();
+        assertEqual(runSync(c.readRetryAfter()), null);
+        assertEqual(runSync(c.readLastError()), null);
     }));
 });
 

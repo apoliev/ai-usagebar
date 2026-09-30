@@ -2,6 +2,10 @@
     spacing: 8px;
 }
 
+.aiusagebar-vendor-icon {
+    margin-right: 6px;
+}
+
 .aiusagebar-panel-tag {
     font-weight: bold;
     margin-right: 6px;
@@ -69,6 +73,29 @@
 .aiusagebar-bar-fill {
     background-color: -st-accent-color;
     border-radius: 4px;
+}
+
+.aiusagebar-spacer {
+    height: 4px;
+}
+
+.aiusagebar-group-heading {
+    font-weight: bold;
+    font-size: 0.85em;
+}
+
+.aiusagebar-grouped-row {
+    spacing: 3px;
+    font-size: 0.9em;
+}
+
+.aiusagebar-grouped-bar {
+    height: 4px;
+    border-radius: 2px;
+}
+
+.aiusagebar-grouped-detail {
+    font-size: 0.8em;
 }
 
 .aiusagebar-bar-marker {

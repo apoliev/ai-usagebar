@@ -3,7 +3,8 @@ import Gio from 'gi://Gio';
 import system from 'system';
 
 import {Cache} from '../../../../lib/cache.js';
-import {fetchSnapshot, USAGE_URL, USER_AGENT} from '../../../../lib/vendors/openai/main.js';
+import {parseUsage, snapshotToCacheJson, CACHE_VERSION} from '../../../../lib/vendors/openai/parser.js';
+import {fetchSnapshot, resetCreditsUrl, USAGE_URL, USER_AGENT} from '../../../../lib/vendors/openai/main.js';
 import {describe, it, assertEqual, summary} from '../../../_assert.js';
 
 const USAGE = JSON.stringify({
@@ -17,6 +18,8 @@ const CACHED = JSON.stringify({
     plan_type: 'pro',
     rate_limit: {primary_window: {used_percent: 50, limit_window_seconds: 18000}},
 });
+
+const cached = (raw) => snapshotToCacheJson(parseUsage(raw, null));
 
 function runSync(promise) {
     const loop = GLib.MainLoop.new(null, false);
@@ -121,6 +124,24 @@ function backdate(cache, secs) {
     f.set_attribute_uint32('time::modified-usec', 0, Gio.FileQueryInfoFlags.NONE, null);
 }
 
+function readText(path) {
+    const [, contents] = Gio.File.new_for_path(path).load_contents(null);
+    return new TextDecoder().decode(contents);
+}
+
+function chmod(path, mode) {
+    Gio.File.new_for_path(path).set_attribute_uint32('unix::mode', mode, Gio.FileQueryInfoFlags.NONE, null);
+}
+
+function expiredCreds(dir, rel) {
+    const path = GLib.build_filenamev([dir, rel]);
+    GLib.mkdir_with_parents(GLib.path_get_dirname(path), 0o755);
+    const doc = {tokens: {access_token: 'AT', refresh_token: 'RT', id_token: fakeJwt({exp: 1}), account_id: 'acc'}};
+    Gio.File.new_for_path(path).replace_contents(
+        new TextEncoder().encode(JSON.stringify(doc)), null, false, Gio.FileCreateFlags.NONE, null);
+    return path;
+}
+
 describe('fetchSnapshot (openai)', () => {
     it('live 200 returns a snapshot with the Codex headers, non-stale', withTemp(({cache, credsPath}) => {
         const http = httpStub(res(200, USAGE));
@@ -136,8 +157,27 @@ describe('fetchSnapshot (openai)', () => {
         assertEqual(r.snapshot.session.utilizationPct, 1);
     }));
 
-    it('fresh cache skips the network', withTemp(({cache, credsPath}) => {
+    it('the cache holds the projected snapshot: no email, user_id or account_id', withTemp(({cache, credsPath}) => {
+        const body = JSON.stringify(Object.assign(JSON.parse(USAGE),
+            {email: 'someone@example.com', user_id: 'user-123', account_id: 'acct-456'}));
+        runSync(fetchSnapshot({cache, http: httpStub(res(200, body)), credsPath}));
+        const onDisk = new TextDecoder().decode(runSync(cache.maybePayload()));
+        for (const needle of ['email', 'someone@example.com', 'user_id', 'user-123', 'account_id', 'acct-456'])
+            assertEqual(onDisk.includes(needle), false, needle);
+        assertEqual(JSON.parse(onDisk).cacheVersion, CACHE_VERSION);
+    }));
+
+    it('a raw body cached by an older release is refetched, not served', withTemp(({cache, credsPath}) => {
         cache.writePayload(USAGE);
+        const http = httpStub(res(200, USAGE));
+        const r = runSync(fetchSnapshot({cache, http, credsPath}));
+        assertEqual(http.calls.length, 1);
+        assertEqual(r.ok, true);
+        assertEqual(r.stale, false);
+    }));
+
+    it('fresh cache skips the network', withTemp(({cache, credsPath}) => {
+        cache.writePayload(cached(USAGE));
         const http = httpStub(res(200, USAGE));
         const r = runSync(fetchSnapshot({cache, http, credsPath}));
         assertEqual(http.calls.length, 0);
@@ -146,7 +186,7 @@ describe('fetchSnapshot (openai)', () => {
     }));
 
     it('HTTP 500 falls back to stale cache with lastError.code 500', withTemp(({cache, credsPath}) => {
-        cache.writePayload(CACHED);
+        cache.writePayload(cached(CACHED));
         backdate(cache, 120);
         const http = httpStub(res(500, '{"error":{"message":"upstream"}}'));
         const r = runSync(fetchSnapshot({cache, http, credsPath}));
@@ -157,12 +197,63 @@ describe('fetchSnapshot (openai)', () => {
     }));
 
     it('transient failure with cache → silent stale', withTemp(({cache, credsPath}) => {
-        cache.writePayload(CACHED);
+        cache.writePayload(cached(CACHED));
         backdate(cache, 120);
         const r = runSync(fetchSnapshot({cache, http: httpStub(resTransport()), credsPath}));
         assertEqual(r.ok, true);
         assertEqual(r.stale, true);
         assertEqual(r.lastError, null);
+    }));
+
+    it('a refresh without a new id_token persists expires_at so the next poll skips refresh', withTemp(({cache, dir}) => {
+        const credsPath = expiredCreds(dir, 'auth.json');
+        const token = res(200, JSON.stringify({access_token: 'AT2', expires_in: 3600}));
+        const http = httpStub([token, res(200, USAGE)]);
+        const r = runSync(fetchSnapshot({cache, http, credsPath, cacheTtlMs: 0}));
+        assertEqual(r.ok, true);
+        const saved = JSON.parse(readText(credsPath)).tokens;
+        assertEqual(saved.access_token, 'AT2');
+        assertEqual(typeof saved.expires_at, 'string');
+
+        const http2 = httpStub(res(200, USAGE));
+        runSync(fetchSnapshot({cache, http: http2, credsPath, cacheTtlMs: 0}));
+        assertEqual(http2.calls.length, 1);
+        assertEqual(http2.calls[0].url, USAGE_URL);
+    }));
+
+    it('an unsaved rotated refresh token is an auth error with stale fallback', withTemp(({cache, dir}) => {
+        cache.writePayload(cached(CACHED));
+        backdate(cache, 120);
+        const credsPath = expiredCreds(dir, 'ro/auth.json');
+        chmod(GLib.path_get_dirname(credsPath), 0o555);
+        try {
+            const token = res(200, JSON.stringify({access_token: 'AT2', refresh_token: 'RT2', expires_in: 3600}));
+            const http = httpStub([token, res(200, USAGE)]);
+            const r = runSync(fetchSnapshot({cache, http, credsPath}));
+            assertEqual(http.calls.length, 1);
+            assertEqual(r.ok, true);
+            assertEqual(r.stale, true);
+            assertEqual(r.snapshot.session.utilizationPct, 50);
+            assertEqual(r.lastError.body.startsWith('refreshed token could not be saved'), true);
+        } finally {
+            chmod(GLib.path_get_dirname(credsPath), 0o755);
+        }
+    }));
+
+    it('an unsaved access token alone stays best-effort', withTemp(({cache, dir}) => {
+        const credsPath = expiredCreds(dir, 'ro/auth.json');
+        chmod(GLib.path_get_dirname(credsPath), 0o555);
+        try {
+            const token = res(200, JSON.stringify({access_token: 'AT2', expires_in: 3600}));
+            const http = httpStub([token, res(200, USAGE)]);
+            const r = runSync(fetchSnapshot({cache, http, credsPath}));
+            assertEqual(http.calls.length, 2);
+            assertEqual(http.calls[1].headers.Authorization, 'Bearer AT2');
+            assertEqual(r.ok, true);
+            assertEqual(r.stale, false);
+        } finally {
+            chmod(GLib.path_get_dirname(credsPath), 0o755);
+        }
     }));
 
     it('missing credentials → error, no fetch', withTemp(({cache}) => {
@@ -171,6 +262,69 @@ describe('fetchSnapshot (openai)', () => {
         assertEqual(http.calls.length, 0);
         assertEqual(r.ok, false);
         assertEqual(r.kind, 'error');
+    }));
+});
+
+describe('fetchSnapshot (openai) — reset credit details', () => {
+    const withCount = n => JSON.stringify(Object.assign(JSON.parse(USAGE), {rate_limit_reset_credits: {available_count: n}}));
+    const DETAIL = JSON.stringify({
+        available_count: 5,
+        credits: [
+            {id: 'c1', status: 'available', title: 'Full reset', expires_at: '2026-07-17T00:00:00Z'},
+            {id: 'c2', status: 'available', title: 'Full reset', expires_at: '2026-07-20T00:00:00Z'},
+        ],
+    });
+
+    it('derives the detail URL from the usage URL', () => {
+        assertEqual(resetCreditsUrl(USAGE_URL), 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits');
+    });
+
+    it('a count > 0 makes a second GET with the same headers and merges the credits', withTemp(({cache, credsPath}) => {
+        const http = httpStub([res(200, withCount(2)), res(200, DETAIL)]);
+        const r = runSync(fetchSnapshot({cache, http, credsPath}));
+        assertEqual(http.calls.length, 2);
+        assertEqual(http.calls[1].url, resetCreditsUrl(USAGE_URL));
+        assertEqual(http.calls[1].headers.Authorization, 'Bearer AT');
+        assertEqual(http.calls[1].headers['User-Agent'], USER_AGENT);
+        assertEqual(http.calls[1].headers['ChatGPT-Account-Id'], 'acc');
+        assertEqual(r.snapshot.resetCredits.available, 2);
+        assertEqual(r.snapshot.resetCredits.credits.length, 2);
+    }));
+
+    it('the merged credits are cached without their ids', withTemp(({cache, credsPath}) => {
+        runSync(fetchSnapshot({cache, http: httpStub([res(200, withCount(2)), res(200, DETAIL)]), credsPath}));
+        const onDisk = new TextDecoder().decode(runSync(cache.maybePayload()));
+        assertEqual(onDisk.includes('Full reset'), true);
+        assertEqual(onDisk.includes('"c1"'), false);
+    }));
+
+    it('a failing second call is silent: count kept, no detail, no lastError', withTemp(({cache, credsPath}) => {
+        const http = httpStub([res(200, withCount(2)), res(500, '{"detail":"account acct-456 broke"}')]);
+        const r = runSync(fetchSnapshot({cache, http, credsPath}));
+        assertEqual(r.ok, true);
+        assertEqual(r.stale, false);
+        assertEqual(r.lastError, null);
+        assertEqual(r.snapshot.resetCredits.available, 2);
+        assertEqual(r.snapshot.resetCredits.credits.length, 0);
+        assertEqual(runSync(cache.readLastError()), null);
+    }));
+
+    it('a transport failure on the second call is silent too', withTemp(({cache, credsPath}) => {
+        const r = runSync(fetchSnapshot({cache, http: httpStub([res(200, withCount(1)), resTransport()]), credsPath}));
+        assertEqual(r.ok, true);
+        assertEqual(r.snapshot.resetCredits.credits.length, 0);
+    }));
+
+    it('an unparseable detail body is ignored', withTemp(({cache, credsPath}) => {
+        const r = runSync(fetchSnapshot({cache, http: httpStub([res(200, withCount(1)), res(200, 'nope')]), credsPath}));
+        assertEqual(r.ok, true);
+        assertEqual(r.snapshot.resetCredits.available, 1);
+    }));
+
+    it('a count of 0 makes no second call', withTemp(({cache, credsPath}) => {
+        const http = httpStub(res(200, withCount(0)));
+        runSync(fetchSnapshot({cache, http, credsPath}));
+        assertEqual(http.calls.length, 1);
     }));
 });
 

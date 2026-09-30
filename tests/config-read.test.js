@@ -31,6 +31,11 @@ function makeSettings() {
 describe('readConfig — schema defaults', () => {
     const cfg = readConfig(makeSettings());
     it('refresh interval defaults to 300', () => assertEqual(cfg.refreshIntervalSecs, 300));
+    it('vendor logos shown by default', () => assertEqual(cfg.showVendorIcons, true));
+    it('panel position defaults to right of the clock', () => {
+        assertEqual(cfg.panel.box, 'center');
+        assertEqual(cfg.panel.index, 1);
+    });
     it('default bar format', () =>
         assertEqual(cfg.barFormat, '{session_pct}% · {session_reset}'));
     it('primary vendor defaults to anthropic', () => assertEqual(cfg.primaryVendor, 'anthropic'));
@@ -57,10 +62,14 @@ describe('readConfig — schema defaults', () => {
     it('sourcecraft PAT env default', () => assertEqual(cfg.vendors.sourcecraft.apiKeyEnv, 'SOURCECRAFT_TOKEN'));
     it('sourcecraft organization is not account-specific by default', () => assertEqual(cfg.vendors.sourcecraft.organization, ''));
     it('sourcecraft PAT unset → null', () => assertEqual(cfg.vendors.sourcecraft.apiKey, null));
+    it('ollama disabled by default', () => assertEqual(cfg.vendors.ollama.enabled, false));
+    it('ollama env var name default', () => assertEqual(cfg.vendors.ollama.apiKeyEnv, 'OLLAMA_API_KEY'));
+    it('ollama api key unset → null', () => assertEqual(cfg.vendors.ollama.apiKey, null));
+    it('ollama plan unset → null', () => assertEqual(cfg.vendors.ollama.plan, null));
     it('active vendor defaults to anthropic', () => assertEqual(cfg.activeVendor, 'anthropic'));
     it('pace marker off by default', () => assertEqual(cfg.showPaceMarker, false));
     it('notifications on by default', () => assertEqual(cfg.notifications.enabled, true));
-    it('notify threshold defaults to 90', () => assertEqual(cfg.notifications.threshold, 90));
+    it('notify threshold defaults to 97', () => assertEqual(cfg.notifications.threshold, 97));
     it('openrouter env var name default', () =>
         assertEqual(cfg.vendors.openrouter.apiKeyEnv, 'OPENROUTER_API_KEY'));
     it('deepseek env var name default', () =>
@@ -106,6 +115,65 @@ describe('readConfig — overrides', () => {
     it('honors a vendor enable toggle', () => assertEqual(cfg.vendors.deepseek.enabled, true));
     it('honors the notify-enabled toggle', () => assertEqual(cfg.notifications.enabled, true));
     it('honors the notify-threshold override', () => assertEqual(cfg.notifications.threshold, 75));
+});
+
+describe('readConfig — custom provider', () => {
+    it('defaults', () => {
+        const c = readConfig(makeSettings()).vendors.custom;
+        assertEqual(c.enabled, false);
+        assertEqual(c.name, 'Custom');
+        assertEqual(c.url, '');
+        assertEqual(c.allowHttp, false);
+        assertEqual(c.apiKeyEnv, null);
+        assertEqual(c.apiKey, null);
+        assertEqual(c.authHeader, 'Authorization');
+        assertEqual(c.authScheme, 'Bearer');
+        assertEqual(JSON.stringify(c.extraHeaders), '{}');
+        // No mapping yet: the adapter refuses to fetch.
+        assertEqual(c.mapping, null);
+    });
+
+    it('parses the JSON prefs; invalid JSON becomes null', () => {
+        const settings = makeSettings();
+        settings.set_string('custom-mapping', '{"metrics":[{"label":"Requests","percent":"/pct"}]}');
+        settings.set_string('custom-extra-headers', '{"X-Team":"core"}');
+        let c = readConfig(settings).vendors.custom;
+        assertEqual(c.mapping.metrics[0].label, 'Requests');
+        assertEqual(c.extraHeaders['X-Team'], 'core');
+
+        settings.set_string('custom-mapping', '{not json');
+        settings.set_string('custom-extra-headers', '{"Authorization":"x"}');
+        c = readConfig(settings).vendors.custom;
+        assertEqual(c.mapping, null);
+        assertEqual(c.extraHeaders, null);
+    });
+
+    it('a blank name reads Custom; a long one is capped at 48', () => {
+        const settings = makeSettings();
+        settings.set_string('custom-name', '   ');
+        assertEqual(readConfig(settings).vendors.custom.name, 'Custom');
+        settings.set_string('custom-name', 'x'.repeat(60));
+        assertEqual(readConfig(settings).vendors.custom.name.length, 48);
+    });
+});
+
+describe('readConfig — context monitor', () => {
+    it('off by default, nothing configured', () => {
+        const c = readConfig(makeSettings()).context;
+        assertEqual(c.enabled, false);
+        assertEqual(c.projectsPath, null);
+        assertEqual(c.windowTokens, null);
+        assertEqual(JSON.stringify(c.modelWindows), '{}');
+    });
+
+    it('reads the window settings', () => {
+        const settings = makeSettings();
+        settings.set_int('context-window-tokens', 200000);
+        settings.set_string('context-model-windows', '{"claude-opus-5": 1000000, "bad": 0}');
+        const c = readConfig(settings).context;
+        assertEqual(c.windowTokens, 200000);
+        assertEqual(JSON.stringify(c.modelWindows), '{"claude-opus-5":1000000}');
+    });
 });
 
 system.exit(summary());

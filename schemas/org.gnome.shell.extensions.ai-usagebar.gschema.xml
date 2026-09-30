@@ -8,6 +8,8 @@
     <value nick="deepseek" value="4"/>
     <value nick="kimi" value="5"/>
     <value nick="sourcecraft" value="6"/>
+    <value nick="ollama" value="7"/>
+    <value nick="custom" value="8"/>
   </enum>
 
   <schema id="org.gnome.shell.extensions.ai-usagebar"
@@ -68,6 +70,30 @@
       <description>Hex color (#rrggbb) for the critical-severity tier. Empty derives the color from the active theme.</description>
     </key>
 
+    <key name="panel-box" type="s">
+      <choices>
+        <choice value="left"/>
+        <choice value="center"/>
+        <choice value="right"/>
+      </choices>
+      <default>'center'</default>
+      <summary>Panel area</summary>
+      <description>Which area of the top panel holds the indicator: left, center (beside the clock) or right (beside the system menu).</description>
+    </key>
+
+    <key name="panel-index" type="i">
+      <default>1</default>
+      <range min="0" max="20"/>
+      <summary>Position within the panel area</summary>
+      <description>Where the indicator sits inside its area; 0 is the leftmost. In the center area 0 is left of the clock and 1 right of it.</description>
+    </key>
+
+    <key name="show-vendor-icons" type="b">
+      <default>true</default>
+      <summary>Show vendor logos</summary>
+      <description>Show each vendor's logo as the panel badge and in the popup headers. Off shows the vendor's short code on the panel and a generic icon in the popup.</description>
+    </key>
+
     <key name="show-pace-marker" type="b">
       <default>false</default>
       <summary>Show the elapsed-position marker on popup bars</summary>
@@ -77,14 +103,39 @@
     <key name="notify-enabled" type="b">
       <default>true</default>
       <summary>Notify when usage crosses the threshold</summary>
-      <description>When enabled, a desktop notification is shown the first time a vendor's peak usage reaches the notification threshold. It fires once per crossing and re-arms after usage drops back below the threshold or the usage window resets.</description>
+      <description>When enabled, a desktop notification is shown the first time a usage window reaches the notification threshold. It fires once per crossing and re-arms after usage drops more than 7 points below the threshold or the window resets. A banked reset credit is also announced once, 48 hours before it expires.</description>
     </key>
 
     <key name="notify-threshold" type="i">
-      <default>90</default>
-      <range min="0" max="100"/>
+      <default>97</default>
+      <range min="1" max="100"/>
       <summary>Notification threshold (percent)</summary>
-      <description>Peak usage percentage at which a notification fires. The default of 90 matches the critical-severity tier. Vendors without a percentage (DeepSeek) notify on their critical tier instead.</description>
+      <description>Usage percentage of any single window at which a notification fires; 100 and above is sent as critical. Vendors without a percentage (DeepSeek) never notify.</description>
+    </key>
+
+    <key name="context-enabled" type="b">
+      <default>false</default>
+      <summary>Show Claude Code session context</summary>
+      <description>When enabled, the Claude section lists recent Claude Code sessions and how much of their context window the latest response used. Nothing is read from disk while this is off.</description>
+    </key>
+
+    <key name="context-projects-path" type="s">
+      <default>''</default>
+      <summary>Claude Code projects directory</summary>
+      <description>Where the session transcripts (*.jsonl) live. Empty means ~/.claude/projects.</description>
+    </key>
+
+    <key name="context-window-tokens" type="i">
+      <default>0</default>
+      <range min="0" max="100000000"/>
+      <summary>Default context window (tokens)</summary>
+      <description>Context window size used when a session's model has no entry in the model windows. 0 means not configured: raw token counts are shown instead of a percentage.</description>
+    </key>
+
+    <key name="context-model-windows" type="s">
+      <default>''</default>
+      <summary>Context window per model</summary>
+      <description>A JSON object of model name to context window size in tokens, e.g. {"claude-opus-5": 1000000}. Entries with an empty name or a non-positive size are ignored.</description>
     </key>
 
     <key name="anthropic-enabled" type="b">
@@ -211,6 +262,90 @@
       <default>''</default>
       <summary>SourceCraft organization slug</summary>
       <description>The organization whose Code Assistant quotas are displayed, including personal organizations.</description>
+    </key>
+
+    <key name="ollama-enabled" type="b">
+      <default>false</default>
+      <summary>Enable Ollama Cloud</summary>
+      <description>Whether the Ollama Cloud vendor is polled and shown. Off by default; requires an API key.</description>
+    </key>
+
+    <key name="ollama-api-key-env" type="s">
+      <default>'OLLAMA_API_KEY'</default>
+      <summary>Ollama API key environment variable</summary>
+      <description>Name of the environment variable holding the Ollama API key (takes precedence over the inline key).</description>
+    </key>
+
+    <key name="ollama-api-key" type="s">
+      <default>''</default>
+      <summary>Ollama inline API key</summary>
+      <description>Inline Ollama API key used when the environment variable is unset. Empty means none.</description>
+    </key>
+
+    <key name="ollama-plan" type="s">
+      <default>''</default>
+      <summary>Ollama plan name</summary>
+      <description>Plan name shown in the popup title and the {plan} placeholder; the usage route does not report one. Empty shows just "Ollama".</description>
+    </key>
+
+    <key name="custom-enabled" type="b">
+      <default>false</default>
+      <summary>Enable the custom provider</summary>
+      <description>Whether the user-defined provider is polled and shown.</description>
+    </key>
+
+    <key name="custom-name" type="s">
+      <default>'Custom'</default>
+      <summary>Custom provider name</summary>
+      <description>Label of the custom provider (1–48 characters); its first three letters become the panel badge.</description>
+    </key>
+
+    <key name="custom-url" type="s">
+      <default>''</default>
+      <summary>Custom provider URL</summary>
+      <description>The https:// URL that answers a GET with JSON. No user name or password in the URL.</description>
+    </key>
+
+    <key name="custom-allow-http" type="b">
+      <default>false</default>
+      <summary>Allow plain HTTP</summary>
+      <description>Accept an http:// URL for the custom provider (e.g. a local service). Off by default.</description>
+    </key>
+
+    <key name="custom-api-key-env" type="s">
+      <default>''</default>
+      <summary>Custom provider API key environment variable</summary>
+      <description>Name of the environment variable holding the key; empty uses only the inline key.</description>
+    </key>
+
+    <key name="custom-api-key" type="s">
+      <default>''</default>
+      <summary>Custom provider inline API key</summary>
+      <description>Inline key used when the environment variable is unset. Empty sends no auth header.</description>
+    </key>
+
+    <key name="custom-auth-header" type="s">
+      <default>'Authorization'</default>
+      <summary>Custom provider auth header</summary>
+      <description>Header that carries the key.</description>
+    </key>
+
+    <key name="custom-auth-scheme" type="s">
+      <default>'Bearer'</default>
+      <summary>Custom provider auth scheme</summary>
+      <description>Prefix sent before the key (e.g. Bearer). Empty sends the key bare.</description>
+    </key>
+
+    <key name="custom-extra-headers" type="s">
+      <default>''</default>
+      <summary>Custom provider extra headers</summary>
+      <description>A JSON object of extra request headers, e.g. {"X-Team": "core"}. It must not repeat the auth header.</description>
+    </key>
+
+    <key name="custom-mapping" type="s">
+      <default>''</default>
+      <summary>Custom provider mapping</summary>
+      <description>A JSON object mapping response fields by JSON Pointer to metrics and texts. See the README.</description>
     </key>
   </schema>
 </schemalist>

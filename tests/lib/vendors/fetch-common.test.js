@@ -1,7 +1,7 @@
 import GLib from 'gi://GLib';
 import system from 'system';
 
-import {withMutex, staleResult} from '../../../lib/vendors/fetch-common.js';
+import {withMutex, staleResult, MAX_STALE_MS, RETRY_AFTER_MS, underBackoff, backoffResult, redactHttpError, recordHttpError} from '../../../lib/vendors/fetch-common.js';
 import {describe, it, assertEqual, assertDeepEqual, summary} from '../../_assert.js';
 
 // The `it` harness is synchronous, so resolve promises against a main loop.
@@ -19,11 +19,12 @@ function runSync(promise) {
     return value;
 }
 
-function fakeCache({payload = null, lastError = null, ageMs = null} = {}) {
+function fakeCache({payload = null, lastError = null, ageMs = null, retryAfter = null} = {}) {
     return {
         maybePayload: () => payload,
         readLastError: () => lastError,
         payloadAgeMs: () => ageMs,
+        readRetryAfter: () => retryAfter,
     };
 }
 
@@ -61,6 +62,109 @@ describe('staleResult', () => {
         let seen = null;
         runSync(staleResult(fakeCache({payload: 'PAYLOAD'}), (b) => { seen = b; return {}; }, NO_CACHE));
         assertEqual(seen, 'PAYLOAD');
+    });
+});
+
+describe('staleResult — ceiling and original error', () => {
+    const ORIGINAL = {ok: false, kind: 'error', status: 401, message: 'usage request failed (HTTP 401)'};
+    const DAY = 86400 * 1000;
+
+    it('MAX_STALE_MS is seven days', () => assertEqual(MAX_STALE_MS, 7 * DAY));
+
+    it('an 8-day-old payload is not served; the original error is returned', () => {
+        const out = runSync(staleResult(fakeCache({payload: 'x', ageMs: 8 * DAY}), () => ({}), ORIGINAL));
+        assertEqual(out, ORIGINAL);
+    });
+
+    it('a payload exactly at the ceiling is still served', () => {
+        const out = runSync(staleResult(fakeCache({payload: 'x', ageMs: MAX_STALE_MS}), () => ({v: 1}), ORIGINAL));
+        assertEqual(out.ok, true);
+        assertEqual(out.stale, true);
+    });
+
+    it('a corrupt stale payload returns the original error, not a synthesized one', () => {
+        const out = runSync(staleResult(fakeCache({payload: '{', ageMs: 1000}), () => { throw new Error('bad'); }, ORIGINAL));
+        assertEqual(out, ORIGINAL);
+        assertEqual(out.status, 401);
+    });
+
+    it('no payload propagates the original error verbatim', () =>
+        assertEqual(runSync(staleResult(fakeCache({payload: null}), () => ({}), ORIGINAL)), ORIGINAL));
+});
+
+describe('429 backoff', () => {
+    const NOW = new Date(1_800_000_000_000);
+
+    it('RETRY_AFTER_MS is five minutes', () => assertEqual(RETRY_AFTER_MS, 5 * 60 * 1000));
+
+    it('underBackoff reports a future marker and ignores a past or absent one', () => {
+        assertEqual(runSync(underBackoff(fakeCache({retryAfter: NOW.getTime() + 1000}), NOW)), NOW.getTime() + 1000);
+        assertEqual(runSync(underBackoff(fakeCache({retryAfter: NOW.getTime() - 1}), NOW)), null);
+        assertEqual(runSync(underBackoff(fakeCache({retryAfter: NOW.getTime()}), NOW)), null);
+        assertEqual(runSync(underBackoff(fakeCache(), NOW)), null);
+    });
+
+    it('serves a usable payload stale, flagged rate-limited', () => {
+        const until = NOW.getTime() + 240_000;
+        const out = runSync(backoffResult(fakeCache({payload: 'x', ageMs: 1000}), () => ({v: 1}), until, NOW));
+        assertEqual(out.ok, true);
+        assertEqual(out.stale, true);
+        assertEqual(out.lastError.code, 'rate-limited');
+        assertEqual(out.lastError.retryInMs, 240_000);
+    });
+
+    it('with no usable payload returns a rate-limited error', () => {
+        const until = NOW.getTime() + 60_000;
+        for (const cache of [
+            fakeCache(),
+            fakeCache({payload: 'x', ageMs: MAX_STALE_MS + 1}),
+            fakeCache({payload: '{', ageMs: 1000}),
+        ]) {
+            const out = runSync(backoffResult(cache, (b) => {
+                if (b === '{')
+                    throw new Error('bad');
+                return {};
+            }, until, NOW));
+            assertEqual(out.ok, false);
+            assertEqual(out.kind, 'error');
+            assertEqual(out.code, 'rate-limited');
+            assertEqual(out.retryInMs, 60_000);
+        }
+    });
+});
+
+describe('redactHttpError / recordHttpError', () => {
+    const TOKEN_BODY = JSON.stringify({error: 'invalid_token', access_token: 'sk-ant-secret-123'});
+
+    it('a 401/403 keeps only the status', () => {
+        for (const status of [401, 403]) {
+            const e = redactHttpError(status, TOKEN_BODY);
+            assertEqual(e.code, 'auth-rejected');
+            assertEqual(e.status, status);
+            assertEqual(JSON.stringify(e).includes('sk-ant-secret-123'), false);
+        }
+    });
+
+    it('any other status keeps a sanitized, capped body', () => {
+        const e = redactHttpError(500, `boom‮${'x'.repeat(5000)}`);
+        assertEqual(e.code, 'http');
+        assertEqual(e.body.startsWith('boom'), true);
+        assertEqual(e.body.includes('‮'), false);
+        assertEqual(Array.from(e.body).length, 4096);
+    });
+
+    it('records the redacted pair and returns the matching result', () => {
+        const written = [];
+        const cache = {writeLastError: (code, msg) => written.push([code, msg])};
+        const r = recordHttpError(cache, 401, TOKEN_BODY, 'usage request failed (HTTP 401)');
+        assertDeepEqual(written, [[401, '']]);
+        assertEqual(r.code, 'auth-rejected');
+        assertEqual(JSON.stringify(r).includes('sk-ant-secret-123'), false);
+
+        const r500 = recordHttpError(cache, 500, 'down', 'usage request failed (HTTP 500)');
+        assertDeepEqual(written[1], [500, 'down']);
+        assertEqual(r500.message, 'usage request failed (HTTP 500)');
+        assertEqual(r500.status, 500);
     });
 });
 

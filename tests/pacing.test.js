@@ -24,6 +24,7 @@ const NEUTRAL = {
     delta: 0,
     ratioLabel: 'on track',
     pointLabel: 'on track',
+    state: 'neutral',
 };
 
 describe('calc — neutral / clamp branches', () => {
@@ -138,6 +139,67 @@ describe('paceSeverity', () => {
     it('-10 → mid (lower edge of band)', () => assertEqual(paceSeverity(-10), PaceSeverity.MID));
     it('-11 → low (just past the -10 boundary)', () => assertEqual(paceSeverity(-11), PaceSeverity.LOW));
     it('-100 → low', () => assertEqual(paceSeverity(-100), PaceSeverity.LOW));
+});
+
+describe('calc — state', () => {
+    const WEEK = 7 * 24 * HOUR;
+    const DAY = 24 * HOUR;
+    // Reset `elapsed` into a window of `windowMs`.
+    const into = (windowMs, elapsed) => at(windowMs - elapsed);
+
+    it('no reset → neutral', () => {
+        assertEqual(calc({usagePct: 30, reset: null, now, windowMs: FIVE_H}).state, 'neutral');
+    });
+
+    it('zero window → neutral', () => {
+        assertEqual(calc({usagePct: 30, reset: now, now, windowMs: 0}).state, 'neutral');
+    });
+
+    it('100% → limit, even early in the window', () => {
+        assertEqual(calc({usagePct: 100, reset: into(WEEK, MINUTE), now, windowMs: WEEK}).state, 'limit');
+        assertEqual(calc({usagePct: 100, reset: into(FIVE_H, 3 * HOUR), now, windowMs: FIVE_H}).state, 'limit');
+    });
+
+    it('a weekly window estimates for its first hour (1% capped at 1 h)', () => {
+        assertEqual(calc({usagePct: 7, reset: into(WEEK, 59 * MINUTE), now, windowMs: WEEK}).state, 'estimating');
+        assertEqual(calc({usagePct: 7, reset: into(WEEK, HOUR), now, windowMs: WEEK}).state, 'ok');
+    });
+
+    it('a 5h window estimates for 1% of it (3 min)', () => {
+        assertEqual(calc({usagePct: 7, reset: into(FIVE_H, 2 * MINUTE), now, windowMs: FIVE_H}).state, 'estimating');
+        assertEqual(calc({usagePct: 7, reset: into(FIVE_H, 3 * MINUTE), now, windowMs: FIVE_H}).state, 'ok');
+    });
+
+    it('a short window estimates for at least 60 s', () => {
+        const window = 10 * MINUTE; // 1% = 6 s, floored to 60 s
+        assertEqual(calc({usagePct: 7, reset: into(window, 59 * 1000), now, windowMs: window}).state, 'estimating');
+        assertEqual(calc({usagePct: 7, reset: into(window, MINUTE), now, windowMs: window}).state, 'ok');
+    });
+
+    it('a 30-day window caps the estimate at 1 h', () => {
+        const month = 30 * DAY;
+        assertEqual(calc({usagePct: 7, reset: into(month, 2 * HOUR), now, windowMs: month}).state, 'ok');
+    });
+
+    it('zero usage is never estimating', () => {
+        assertEqual(calc({usagePct: 0, reset: into(WEEK, MINUTE), now, windowMs: WEEK}).state, 'ok');
+    });
+
+    it('a reset already in the past is not estimating', () => {
+        assertEqual(calc({usagePct: 7, reset: at(-MINUTE), now, windowMs: WEEK}).state, 'ok');
+    });
+});
+
+describe('paceGlyph — state', () => {
+    it('ok (and the default) keeps the glyph', () => {
+        assertEqual(paceGlyph(Pace.AHEAD), '↑');
+        assertEqual(paceGlyph(Pace.UNDER, 'ok'), '↓');
+    });
+
+    it('estimating, limit and neutral show no glyph', () => {
+        for (const state of ['estimating', 'limit', 'neutral'])
+            assertEqual(paceGlyph(Pace.AHEAD, state), '', state);
+    });
 });
 
 system.exit(summary());

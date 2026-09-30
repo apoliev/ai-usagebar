@@ -5,6 +5,83 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-30
+
+### Added
+
+- **Ollama Cloud** joins as the seventh vendor: session, weekly or monthly
+  usage, the five most-used models of each window as a breakdown, and the
+  reported cost, with an API key and an optional plan name in preferences.
+- A **custom provider** turns any HTTPS endpoint that answers a GET with JSON
+  into a vendor, with metrics and texts mapped by JSON Pointer, an optional key
+  in a header of your choice, extra headers, and its own name and panel badge.
+- **Banked resets**: Claude launch resets and Codex reset credits are listed
+  in the popup, soonest to expire first, with `{resets}`,
+  `{resets_available}`, `{oai_resets}` and `{oai_resets_available}`.
+- An opt-in **context monitor** lists recent Claude Code sessions under the
+  Claude section with how much of the context window each one used.
+- **Vendor logos** in the panel badge, the popup headers and the preferences
+  pages, recoloured for light and dark themes; **Show vendor logos** turns them
+  off.
+- **Panel position** in preferences: the area (left, center, right) and the
+  position within it, applied immediately.
+- A **pace footnote** under each paced window ("42% elapsed · 3pts ahead"),
+  "Estimating…" at the start of a window and "Limit reached" at the cap.
+- Reset countdowns also show the wall-clock time the window reopens.
+- `{session_elapsed}`/`{weekly_elapsed}` for every vendor, `{session_pace}`/
+  `{weekly_pace}` for OpenAI and Z.AI, the `{zai_*_elapsed|pace}` family,
+  `{kimi_monthly_*}`, `{oll_*}` and `{custom_*}` placeholders; the README now
+  lists every placeholder.
+- Kimi accounts that report only the newer `usages` shape (a monthly pool) are
+  read, and the plan shows Kimi's own tier name.
+- Z.AI's `CREDIT_LIMIT` buckets are read.
+
+### Changed
+
+- `shell-version` now declares **GNOME Shell 45–51**. The extension is
+  developed and tested on 50 only; on the other versions it is untested, so
+  please report anything that breaks.
+- The indicator now sits **right of the clock** by default instead of beside
+  the system menu; the previous place is **Right** in the new Panel position
+  preference.
+- **Notifications** fire once per usage window when it reaches the threshold
+  (now 97% by default, 1–100), as critical at 100%, and re-arm only after usage
+  drops 7 points below it or the window resets. A banked reset credit is
+  announced 48 hours before it expires. Only a fresh fetch notifies.
+- The cache keeps only the figures the popup shows, never a raw response; a
+  cache older than 7 days is no longer shown, and the original error is shown
+  instead of stale history.
+- After an HTTP 429 a vendor makes no request for 5 minutes, and the popup
+  says when the next attempt is.
+- Redirects are followed only within the same scheme, host and port.
+- Switching vendors while a fetch is slow no longer waits for it or paints its
+  late result.
+- Money is formatted by one shared formatter that honours the currency; a
+  negative OpenRouter balance is critical.
+- Claude extra usage without a monthly cap shows the spend with no bar instead
+  of a $0.00 limit, in the account's currency.
+
+### Fixed
+
+- Codex windows are classified by their length, so a weekly window sent alone
+  is no longer shown as the 5-hour one, and a missing window is no longer 0%.
+- A Codex token refresh that returns no new ID token no longer refreshes again
+  on every poll.
+- Failing to save a rotated refresh token (Claude, Codex) is reported instead
+  of silently logging the user out on the next run.
+- Z.AI buckets are classified by unit, and a failure answer inside an HTTP 200
+  is neither cached nor shown as usage.
+- A corrupt DeepSeek cache is refetched instead of reading as a zero balance.
+- The pace marker is no longer drawn on a window at its cap, and no pace verdict
+  is shown in the first minutes of a window.
+
+### Security
+
+- A 401/403 response body is never stored or shown, since it can echo a
+  credential; other error bodies and all vendor text are stripped of control
+  and bidi characters before display.
+- The Codex account's email and ids no longer reach the on-disk cache.
+
 ## [1.2.1] - 2026-07-17
 
 ### Added

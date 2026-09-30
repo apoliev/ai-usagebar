@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A **GNOME Shell extension** (GJS / ES modules, `shell-version: ["50"]`) that
-shows AI plan usage in the top panel for five vendors — **Anthropic, OpenAI,
-Z.AI/GLM, OpenRouter, DeepSeek**. It is a port of the Rust Waybar widget
+A **GNOME Shell extension** (GJS / ES modules, `shell-version` 45–51, developed and tested on 50) that
+shows AI plan usage in the top panel for eight vendors — **Anthropic, OpenAI,
+Z.AI/GLM, OpenRouter, DeepSeek, Kimi, SourceCraft, Ollama Cloud** — plus a user-mapped
+**custom provider** (SourceCraft is this fork's addition). It is a port of the Rust Waybar widget
 [ai-usagebar](https://github.com/akitaonrails/ai-usagebar) by akitaonrails.
 
 The extension is fully built: panel indicator, per-vendor fetch + OAuth refresh,
@@ -65,8 +66,12 @@ owns this discipline in its `destroy()`.
 
 The indicator never branches per vendor. `lib/vendors/registry.js` maps a vendor
 id → a uniform `Adapter` (`{ id, cacheId, icon, vendorShort, fetchSnapshot,
-severity, placeholders, buildSection }`); the indicator calls `getAdapter(id)`
-and drives it generically. Each vendor lives in its own directory
+severity, peakUsage, placeholders, notifyRows, resetCredits, buildSection }`,
+plus optional `fakeSnapshot` and `shortCode(config)`); the indicator calls
+`getAdapter(id)` and drives it generically. `notifyRows(snapshot, _)` lists one
+`{key, label, percent, resetsAt}` per usage window and `resetCredits(snapshot)`
+the banked resets `{title, expiresAt}` — both feed `lib/notify.js`. Each vendor
+lives in its own directory
 `lib/vendors/<vendor>/` as a **module quad**:
 
 - `lib/vendors/<vendor>/adapter.js` — wires the triple into the uniform `Adapter`
@@ -82,24 +87,34 @@ and drives it generically. Each vendor lives in its own directory
   cache/http), so it is **not** unit-tested directly. Never throws — always
   resolves to a `FetchResult`.
 - `lib/vendors/<vendor>/parser.js` — **pure**: `parseUsage(jsonBytes) → snapshot`,
-  plus `severity`, `placeholders` (Map for `bar-format` substitution), `ICON`,
-  `VENDOR_SHORT`. No `gi://`; fully unit-tested.
+  plus `severity`, `peakUsage`, `placeholders` (Map for `bar-format`
+  substitution; takes an injected `ngettext`), `notifyRows`, `resetCredits`,
+  `snapshotToCacheJson`/`parseCacheJson`, `ICON`, `VENDOR_SHORT`. No `gi://`;
+  fully unit-tested.
 - `lib/vendors/<vendor>/section.js` — **pure**: `buildSection(snapshot, meta,
-now, theme) → SectionModel` (an ordered list of typed rows). No `gi://`;
-  unit-tested.
+now, theme, _, ngettext) → SectionModel` (an ordered list of typed rows:
+  `window`, `gauge`, `text`, `group-heading`, `grouped`, `spacer`,
+  `http-error`, `footer`). No `gi://`; unit-tested. Window rows take their colour
+  and pace fields from `paceFields()` in `section-common.js`.
 
-Shared helpers (`registry.js`, `section-common.js`) stay flat at
-`lib/vendors/`. `registry.js` is now thin: it imports each vendor's
+Shared helpers (`registry.js`, `section-common.js`, `fetch-common.js`,
+`snapshot-cache.js`) stay flat at `lib/vendors/`. `registry.js` is now thin: it imports each vendor's
 `adapter.js` and maps id → adapter in `ADAPTERS`. To add a vendor: create
 `lib/vendors/<vendor>/` with the quad (the adapter wires the rest), register its
 adapter in `ADAPTERS`, and add its id/label to `lib/vendors.js`
-(`VENDOR_IDS` / `VENDOR_LABELS`) + the gschema keys.
+(`VENDOR_IDS` / `VENDOR_LABELS`, appended last — the gschema enum ordinal and
+the prefs combo index follow that order) + the gschema keys, a prefs page, and
+`icons/<id>-symbolic.svg` (or list the id in `GENERIC_ICON_VENDORS`;
+`registry.test.js` checks it).
 
 ### Data flow
 
-`FetchResult` (`lib/vendors/types.js`) is a discriminated union:
+`FetchResult` is an implicit discriminated union (there is no types module):
 `{ok:true, snapshot, stale, lastError, cacheAgeMs}` |
-`{ok:false, kind:'loading'}` | `{ok:false, kind:'error', message}`. The indicator
+`{ok:false, kind:'loading'}` | `{ok:false, kind:'error', message}`, where an
+error may carry a `code` (`rate-limited`, `auth-rejected`, `invalid-mapping`)
+that `errorText()` in `section-common.js` translates — `main.js` has no
+translator. The indicator
 renders it three ways: the **panel label** = `substitute(barFormat,
 adapter.placeholders(snapshot))` colored by `adapter.severity(snapshot)` (with a
 trailing `⏸` when stale); the **popup sub-section** = `adapter.buildSection(...)`
@@ -109,9 +124,30 @@ single message row.
 
 Only the **active** vendor is polled on the timer; other enabled vendors render
 from an in-memory results map, populated lazily on scroll-cycle or "Refresh all".
+`lib/fetch-guard.js` keeps one active fetch in flight, coalesces requests made
+meanwhile, and lets a vendor switch supersede a slow fetch (its late result is
+stored, never painted or notified).
 Scrolling the panel button cycles `active-vendor` among enabled vendors. While
 the popup is open a 60s timer re-renders the active section so countdowns tick
 without hitting the network.
+
+**Pace** (`lib/pacing.js` `calc()`) reports a `state`: `estimating` in the first
+1% of a window (clamped to 60 s–1 h) while usage is above zero, `limit` at
+100%, `neutral` with no reset, `ok` otherwise. Only `ok` shows a pace glyph; the
+marker is drawn for `ok`/`estimating`; the footnote reads "42% elapsed · 3pts
+ahead", "Estimating…" or "Limit reached".
+
+**Notifications** (`lib/notify.js` `decide()`, pure) run only after a fresh
+fetch: each `notifyRows` window fires once at the threshold and re-arms below
+threshold − 7 or when its reset moves later; a reset credit fires once 48 h
+before it expires. The dedupe state is JSON (`version: 2`) in the vendor's
+`.notified` sidecar, saved before delivery.
+
+**Context monitor** (`lib/context/`): `parser.js` is the pure Claude Code
+transcript-tail parser; `scan.js` (`gi://Gio`, async) walks
+`~/.claude/projects` and reads the tails of the 8 newest sessions. The
+indicator scans only while `context-enabled` is on and only for an `ok`
+Anthropic result, passing the scan to `buildSection` as `meta.sessions`.
 
 ### Config & cache
 
@@ -125,18 +161,33 @@ holds the pure resolution helpers (`normalizeActive`, `enabledVendors`,
 `cycleVendor`, `resolveApiKey`).
 
 `lib/cache.js` is a per-vendor directory with a payload file plus `.stale` /
-`.last_error` sidecars; a 60s fresh-TTL fast path skips HTTP, and a failed fetch
-falls back to the cached payload as a `stale` result.
+`.last_error` / `.retry_after` sidecars; a 60s fresh-TTL fast path skips HTTP,
+and a failed fetch falls back to the cached payload as a `stale` result
+(`staleResult` in `lib/vendors/fetch-common.js`). The payload is always the
+**projected snapshot** (`snapshotToCacheJson` / `parseCacheJson`, versioned via
+`lib/vendors/snapshot-cache.js` or a vendor's own normalized form), never a raw
+response body — bump a vendor's `CACHE_VERSION` when its snapshot shape
+changes. A payload older than 7 days, unparseable, or of another version is
+never served: the original error is returned instead. Any `writeLastError(429)`
+arms a 5-minute backoff during which `main.js` makes no request at all.
 
 ### HTTP & prefs (the other gi:// boundaries)
 
 `lib/http.js` is the only `Soup` consumer — async libsoup3, threaded through a
 shared session disposed on `destroy()`. **Never block the main loop.** Refresh
 defaults to 300s because the undocumented endpoints rate-limit below that.
+Redirects are followed by hand (`NO_REDIRECT`): at most 10 hops and only within
+the same scheme + host + port; a cross-origin redirect is returned as the 3xx.
+
+The custom provider maps any JSON endpoint through `lib/json-pointer.js`
+(RFC 6901) and `lib/vendors/custom/parser.js` (`validateMapping`,
+`urlProblem`, `shortCode`); its name comes from the config, so
+`vendorLabel(id, config)` takes an optional config.
 
 `prefs.js` runs in a **separate process** and cannot import the gi-bound adapter
-registry — it uses `lib/vendors.js` (`VENDOR_LABELS`) for page titles and the
-primary-vendor combo instead.
+registry — it uses `lib/vendors.js` (`VENDOR_LABELS`, `vendorIconName`) for page
+titles, icons and the primary-vendor combo, and imports only pure modules (the
+custom provider's `validateMapping` for its JSON editors).
 
 ### Internationalization (i18n / gettext)
 
@@ -156,7 +207,9 @@ as the argument — never a template literal, which `xgettext` cannot extract.
   builders call `_('…')` on it; `ui/indicator.js` injects the real `gettext` as
   the trailing arg when it calls `adapter.buildSection(...)`. Tests call these
   with no translator (or a fake one) and stay 100% `gi://`-free. `xgettext` extraction is syntactic, so
-  `_('Session')` is extracted regardless of where `_` is defined.
+  `_('Session')` is extracted regardless of where `_` is defined. Plurals work
+  the same way: `buildSection` and `placeholders` take an
+  injected `ngettext` (English default), which the indicator supplies.
 - **Interpolation.** GJS's `String.prototype.format` is absent in the prefs
   process and in bare-`gjs -m` tests, so we use the pure `vformat()` helper in
   `lib/format.js` instead: `vformat(_('Claude %s'), plan)`. The translatable text

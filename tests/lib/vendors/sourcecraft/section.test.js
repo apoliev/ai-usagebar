@@ -19,6 +19,17 @@ describe('SourceCraft section', () => {
         assertEqual(gauge.pct, 25);
         assertEqual(gauge.reset, undefined);
     });
+    it('renders the personal subscription quota as the first gauge', () => {
+        const section = build([
+            {quota_id: 'src.completionRequests.count', usage: 21, limit: 4000},
+            {quota_id: 'src.cu.count', usage: 1000, limit: 4000},
+        ], s => `t:${s}`);
+        const gauges = section.rows.filter(row => row.kind === 'gauge');
+        assertEqual(gauges.length, 2);
+        assertEqual(gauges[0].title, 't:Subscription neurocredits');
+        assertEqual(gauges[0].pct, 25);
+        assertEqual(gauges[1].title, 't:Code completions');
+    });
     it('does not draw a misleading gauge for a zero limit', () => {
         const section = build([{quota_id: 'src.cuFlexible.count', usage: 0, limit: 0}]);
         assertEqual(section.rows.some(row => row.kind === 'gauge'), false);

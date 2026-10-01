@@ -5,10 +5,18 @@ import system from 'system';
 import {Cache} from '../../../../lib/cache.js';
 import {parseUsage, snapshotToCacheJson} from '../../../../lib/vendors/sourcecraft/parser.js';
 import {fetchSnapshot, quotaUrl, API_URL} from '../../../../lib/vendors/sourcecraft/main.js';
-import {describe, it, assertEqual, assertThrows, summary} from '../../../_assert.js';
+import {describe, it, assertEqual, assertDeepEqual, assertThrows, summary} from '../../../_assert.js';
 
 const LIVE = JSON.stringify({quotas: [
     {quota_id: 'src.cuPrepaidRaw.count', usage: 25, limit: 100},
+]});
+const PERSONAL_LIVE = JSON.stringify({quotas: [
+    {quota_id: 'src.cu.count', usage: 1000, limit: 4000},
+]});
+const ORG_LIVE = JSON.stringify({quotas: [
+    {quota_id: 'src.cuPrepaidRaw.count', usage: 0, limit: 4000},
+    {quota_id: 'src.cuFlexible.count', usage: 0, limit: 0},
+    {quota_id: 'src.completionRequests.count', usage: 21, limit: 4000},
 ]});
 const SEED = JSON.stringify({quotas: [
     {quota_id: 'src.cuPrepaidRaw.count', usage: 5, limit: 100},
@@ -34,6 +42,17 @@ function httpStub(response) {
     const fn = (opts) => {
         calls.push(opts);
         return Promise.resolve(response);
+    };
+    fn.calls = calls;
+    return fn;
+}
+
+function httpRoute(map) {
+    const calls = [];
+    const fn = (opts) => {
+        calls.push(opts);
+        const hit = Object.entries(map).find(([needle]) => opts.url.includes(needle));
+        return Promise.resolve(hit ? hit[1] : res(404, 'unrouted'));
     };
     fn.calls = calls;
     return fn;
@@ -84,18 +103,71 @@ function backdate(cache, secs) {
 }
 
 describe('fetchSnapshot (sourcecraft)', () => {
-    it('live 200 sends Bearer + Accept, parses the body and validates the slug', withTemp(({cache}) => {
+    it('live 200 hits both endpoints with Bearer + Accept, parses and merges', withTemp(({cache}) => {
         const http = httpStub(res(200, LIVE));
         const r = runSync(fetchSnapshot({cache, http, apiKey: 'k', organization: 'example'}));
-        assertEqual(http.calls.length, 1);
-        assertEqual(http.calls[0].url, `${API_URL}/orgs/example/quotas`);
-        assertEqual(http.calls[0].headers.Authorization, 'Bearer k');
-        assertEqual(http.calls[0].headers.Accept, 'application/json');
-        assertEqual(http.calls[0].cancellable, undefined);
+        assertEqual(http.calls.length, 2);
+        assertDeepEqual(http.calls.map(c => c.url), [
+            `${API_URL}/orgs/example/personal-quotas/me`,
+            `${API_URL}/orgs/example/quotas`,
+        ]);
+        for (const call of http.calls) {
+            assertEqual(call.headers.Authorization, 'Bearer k');
+            assertEqual(call.headers.Accept, 'application/json');
+            assertEqual(call.cancellable, undefined);
+        }
         assertEqual(r.ok, true);
         assertEqual(r.stale, false);
         assertEqual(r.snapshot.quotas[0].percent, 25);
         assertEqual(r.snapshot.organization, 'example');
+    }));
+
+    it('merges the personal subscription with org buckets and retires prepaid', withTemp(({cache}) => {
+        const http = httpRoute({
+            'personal-quotas': res(200, PERSONAL_LIVE),
+            '/quotas': res(200, ORG_LIVE),
+        });
+        const r = runSync(fetchSnapshot({cache, http, apiKey: 'k', organization: 'example'}));
+        assertEqual(r.ok, true);
+        assertDeepEqual(r.snapshot.quotas.map(q => q.kind), ['subscription', 'extra', 'completions']);
+        assertEqual(r.snapshot.quotas[0].percent, 25);
+    }));
+
+    it('a personal failure degrades to the org answer', withTemp(({cache}) => {
+        const http = httpRoute({
+            'personal-quotas': res(404, 'gone'),
+            '/quotas': res(200, ORG_LIVE),
+        });
+        const r = runSync(fetchSnapshot({cache, http, apiKey: 'k', organization: 'example'}));
+        assertEqual(r.ok, true);
+        assertDeepEqual(r.snapshot.quotas.map(q => q.kind), ['monthly', 'extra', 'completions']);
+    }));
+
+    it('an org failure degrades to the personal answer', withTemp(({cache}) => {
+        const http = httpRoute({
+            'personal-quotas': res(200, PERSONAL_LIVE),
+            '/quotas': res(500, 'boom'),
+        });
+        const r = runSync(fetchSnapshot({cache, http, apiKey: 'k', organization: 'example'}));
+        assertEqual(r.ok, true);
+        assertDeepEqual(r.snapshot.quotas.map(q => q.kind), ['subscription']);
+    }));
+
+    it('a 429 on one endpoint serves the other and still arms the backoff', withTemp(({cache}) => {
+        const http = httpRoute({
+            'personal-quotas': res(429, 'slow down'),
+            '/quotas': res(200, ORG_LIVE),
+        });
+        const r = runSync(fetchSnapshot({cache, http, apiKey: 'k', organization: 'example'}));
+        assertEqual(r.ok, true);
+        assertEqual(r.stale, false);
+        assertDeepEqual(r.snapshot.quotas.map(q => q.kind), ['monthly', 'extra', 'completions']);
+        backdate(cache, 120);
+        const http2 = httpStub(res(200, ORG_LIVE));
+        const r2 = runSync(fetchSnapshot({cache, http: http2, apiKey: 'k', organization: 'example'}));
+        assertEqual(http2.calls.length, 0);
+        assertEqual(r2.ok, true);
+        assertEqual(r2.stale, true);
     }));
 
     it('the cache holds only the projected snapshot, never the raw body', withTemp(({cache}) => {
@@ -119,7 +191,7 @@ describe('fetchSnapshot (sourcecraft)', () => {
         cache.writePayload(SEED);
         const http = httpStub(res(200, LIVE));
         const r = runSync(fetchSnapshot({cache, http, apiKey: 'k', organization: 'example'}));
-        assertEqual(http.calls.length, 1);
+        assertEqual(http.calls.length, 2);
         assertEqual(r.ok, true);
         assertEqual(r.snapshot.quotas[0].percent, 25);
     }));

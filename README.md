@@ -27,7 +27,7 @@ button to cycle between them.
 | **OpenRouter**         | Credit balance and usage                         | API key (env var or prefs entry)                                     |
 | **DeepSeek**           | Balance / credits                                | API key (env var or prefs entry)                                     |
 | **Kimi**               | Weekly quota + 5h window usage %, reset countdowns, plan | API key (env var or prefs entry)                             |
-| **SourceCraft Code Assistant** | Monthly, bonus and extra neurocredits; code completions | SourceCraft PAT + organization slug (env var or prefs entry) |
+| **SourceCraft Code Assistant** | Subscription (personal) neurocredits, plus archived-tariff monthly/bonus quotas; pay-as-you-go extra; code completions | SourceCraft PAT + organization slug (env var or prefs entry) |
 | **Ollama Cloud**       | Session + weekly (or monthly) usage %, top 5 models per window, cost | API key (env var or prefs entry)                   |
 | **Custom provider**    | Any metrics and texts you map from a JSON endpoint | Optional key in a header you choose (see [Custom provider](#custom-provider)) |
 
@@ -173,13 +173,19 @@ field or provide it through
 `SOURCECRAFT_TOKEN` in the GNOME Shell process environment, then enable the vendor.
 The environment variable takes precedence over the inline token.
 
-The extension calls the official read-only endpoint
-`https://api.sourcecraft.tech/orgs/{org_slug}/quotas` using `Authorization: Bearer`.
-The token must have permission to read that organization's quotas. This displays
-organization quotas, not per-user caps inside a shared organization.
+The extension calls two official read-only endpoints with `Authorization: Bearer`:
+`https://api.sourcecraft.tech/orgs/{org_slug}/personal-quotas/me` (the
+authenticated member's own quotas) and `https://api.sourcecraft.tech/orgs/{org_slug}/quotas`
+(the organization aggregate). The token must have permission to read that
+organization's quotas. Since the 2026-10 tariff change bills per participant,
+the personal answer is authoritative; the organization answer only fills in
+kinds the personal one lacks (pay-as-you-go extra, code completions), and an
+organization that has not switched to the new subscriptions yet is still served
+through it alone. If one endpoint fails, the other is used on its own.
 
 The panel and notifications use the first quota with a positive limit, in this
-order: monthly AI quota, bonus AI quota, extra neurocredits, code completions.
+order: subscription neurocredits (new tariffs), monthly AI quota (archived
+tariffs), bonus AI quota, extra neurocredits, code completions.
 The popup shows all recognized AI quotas. A zero limit or missing quota is not
 reported as 0% usage. The API does not supply reset timestamps, so the reset
 placeholder is `—` and no countdown or pace estimate is invented.
@@ -191,10 +197,13 @@ For example: `{sourcecraft_usage}/{sourcecraft_limit}`.
 Cached usage is isolated by organization and token. On request failure the last
 valid result is shown as stale. Tokens and API error bodies are not logged.
 
-API contract: [List organization quotas](https://sourcecraft.dev/portal/docs/ru/api-ref/Quota/ListQuotas.md).
+API contract: [List organization quotas](https://sourcecraft.dev/portal/docs/ru/api-ref/Quota/ListQuotas.md)
+and [List my personal quotas](https://sourcecraft.dev/portal/docs/ru/api-ref/Quota/ListMyPersonalQuotas.md).
 Quota IDs were cross-checked against the public SourceCraft Code Assistant
-settings frontend on 2026-09-24. Live API fetching and GNOME panel/popup display
-were verified with a personal organization and PAT on the same date.
+settings frontend on 2026-09-24 and against both live endpoints after the
+2026-10 tariff change (`src.cu.count` is the per-participant subscription
+quota; `src.cuPrepaidRaw.count` / `src.cuPrepaid.count` are its archived
+prepaid aliases; the gift, pay-as-you-go and completion IDs are unchanged).
 
 ### General settings
 

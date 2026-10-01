@@ -302,7 +302,7 @@ msgid "~ %s-%s cloud messages"
 msgstr "~ %s-%s Cloud-Nachrichten"
 
 #. Translators: %s are money amounts, %s%% is the consumed percentage.
-#: lib/vendors/openrouter/section.js:22 lib/vendors/sourcecraft/section.js:24
+#: lib/vendors/openrouter/section.js:22 lib/vendors/sourcecraft/section.js:25
 #, javascript-format
 msgid "%s of %s used (%s%%)"
 msgstr "%s von %s genutzt (%s%%)"
@@ -410,23 +410,27 @@ msgstr "%d Pkt. darunter"
 msgid "%d%% elapsed · %s"
 msgstr "%d%% vergangen · %s"
 
-#: lib/vendors/sourcecraft/parser.js:27 lib/vendors/sourcecraft/section.js:7
+#: lib/vendors/sourcecraft/parser.js:30 lib/vendors/sourcecraft/section.js:7
+msgid "Subscription neurocredits"
+msgstr "Abo-Neurocredits"
+
+#: lib/vendors/sourcecraft/parser.js:32 lib/vendors/sourcecraft/section.js:8
 msgid "Monthly AI quota"
 msgstr "Monatliches KI-Kontingent"
 
-#: lib/vendors/sourcecraft/parser.js:29 lib/vendors/sourcecraft/section.js:8
+#: lib/vendors/sourcecraft/parser.js:34 lib/vendors/sourcecraft/section.js:9
 msgid "Bonus AI quota"
 msgstr "KI-Bonuskontingent"
 
-#: lib/vendors/sourcecraft/parser.js:31 lib/vendors/sourcecraft/section.js:9
+#: lib/vendors/sourcecraft/parser.js:36 lib/vendors/sourcecraft/section.js:10
 msgid "Extra neurocredits"
 msgstr "Zusätzliche Neurocredits"
 
-#: lib/vendors/sourcecraft/parser.js:33 lib/vendors/sourcecraft/section.js:10
+#: lib/vendors/sourcecraft/parser.js:38 lib/vendors/sourcecraft/section.js:11
 msgid "Code completions"
 msgstr "Code-Vervollständigungen"
 
-#: lib/vendors/sourcecraft/section.js:29
+#: lib/vendors/sourcecraft/section.js:30
 msgid "No Code Assistant quotas reported for this organization"
 msgstr "Keine Code-Assistant-Kontingente für diese Organisation gemeldet"
 

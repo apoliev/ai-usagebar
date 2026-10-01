@@ -2,7 +2,7 @@ import system from 'system';
 
 import {
     parseUsage, primaryQuota, peakUsage, severity, placeholders, fakeSnapshot,
-    notifyRows, resetCredits, snapshotToCacheJson, parseCacheJson, CACHE_VERSION,
+    notifyRows, resetCredits, mergeQuotas, snapshotToCacheJson, parseCacheJson, CACHE_VERSION,
 } from '../../../../lib/vendors/sourcecraft/parser.js';
 import {Severity} from '../../../../lib/severity.js';
 import {describe, it, assertEqual, assertDeepEqual, assertThrows, summary} from '../../../_assert.js';
@@ -10,6 +10,16 @@ import {describe, it, assertEqual, assertDeepEqual, assertThrows, summary} from 
 const parse = quotas => parseUsage(JSON.stringify({quotas}), 'example');
 
 describe('SourceCraft quotas', () => {
+    it('treats the personal subscription quota as primary', () => {
+        const s = parse([
+            {quota_id: 'src.completionRequests.count', usage: 21, limit: 4000},
+            {quota_id: 'src.cu.count', usage: 1000, limit: 4000},
+        ]);
+        assertEqual(s.quotas[0].kind, 'subscription');
+        assertEqual(primaryQuota(s).kind, 'subscription');
+        assertEqual(peakUsage(s).percent, 25);
+        assertEqual(placeholders(s).get('sourcecraft_quota'), 'subscription');
+    });
     it('selects monthly AI quota over exhausted bonuses and excludes non-AI quotas', () => {
         const s = parse([
             {quota_id: 'src.cuOneTimeGift.count', usage: 100, limit: 100},
@@ -73,6 +83,35 @@ describe('SourceCraft quotas', () => {
     });
 });
 
+describe('SourceCraft mergeQuotas', () => {
+    const mk = (kind, usage, limit) => ({
+        kind, id: `src.${kind}.count`, usage, limit,
+        percent: limit > 0 ? Math.min(100, Math.round(usage / limit * 100)) : null,
+    });
+
+    it('personal wins per kind and retires the archived prepaid bucket', () => {
+        const merged = mergeQuotas(
+            [mk('subscription', 10, 100)],
+            [mk('monthly', 20, 100), mk('extra', 0, 0), mk('completions', 3, 10)]
+        );
+        assertDeepEqual(merged.map(q => q.kind), ['subscription', 'extra', 'completions']);
+    });
+
+    it('without a subscription the org buckets pass through untouched', () => {
+        const org = [mk('monthly', 20, 100), mk('completions', 3, 10)];
+        assertDeepEqual(mergeQuotas([], org), org);
+    });
+
+    it('never duplicates a kind the personal answer already reported', () => {
+        const merged = mergeQuotas(
+            [mk('monthly', 1, 10), mk('completions', 2, 10)],
+            [mk('monthly', 9, 10), mk('completions', 8, 10), mk('extra', 1, 10)]
+        );
+        assertDeepEqual(merged.map(q => q.kind), ['monthly', 'completions', 'extra']);
+        assertEqual(merged[0].usage, 1);
+    });
+});
+
 describe('SourceCraft notifyRows / resetCredits', () => {
     it('lists one row per reported quota with an organization-scoped key', () => {
         const s = parse([
@@ -117,6 +156,7 @@ describe('SourceCraft snapshot cache', () => {
 
     it('a raw body or another version is rejected as corrupt', () => {
         assertThrows(() => parseCacheJson('{"quotas":[]}'));
+        assertThrows(() => parseCacheJson(JSON.stringify({cacheVersion: 1, snapshot: {}})));
         assertThrows(() => parseCacheJson(JSON.stringify({cacheVersion: CACHE_VERSION + 1, snapshot: {}})));
         assertThrows(() => parseCacheJson('not json'));
     });

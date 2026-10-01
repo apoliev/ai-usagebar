@@ -228,19 +228,19 @@ describe('resetCreditRows', () => {
             {title: 'C', expiresAt: null},
         ], NOW);
         assertDeepEqual(rows[0], {kind: 'group-heading', label: 'Resets'});
-        assertEqual(rows[1].text, 'C · no expiry reported');
-        assertEqual(rows[2].text, `A · expires ${localDateHm(sooner)} (${formatCountdown(sooner, NOW)})`);
-        assertEqual(rows[3].text, `B · expires ${localDateHm(later)} (${formatCountdown(later, NOW)})`);
+        assertDeepEqual(rows[1], {kind: 'text', text: 'C', subtitle: 'No expiry reported'});
+        assertDeepEqual(rows[2], {kind: 'text', text: 'A', subtitle: `Expires ${localDateHm(sooner)} (${formatCountdown(sooner, NOW)})`});
+        assertDeepEqual(rows[3], {kind: 'text', text: 'B', subtitle: `Expires ${localDateHm(later)} (${formatCountdown(later, NOW)})`});
     });
 
-    it('a lapsed credit reads "expired <date>"', () => {
-        assertEqual(resetCreditRows([{title: 'A', expiresAt: past}], NOW)[1].text, `A · expired ${localDateHm(past)}`);
+    it('a lapsed credit reads "Expired <date>"', () => {
+        assertEqual(resetCreditRows([{title: 'A', expiresAt: past}], NOW)[1].subtitle, `Expired ${localDateHm(past)}`);
     });
 
-    it('without a title: the fallback title, or the capitalized expiry alone', () => {
-        assertEqual(resetCreditRows([{title: null, expiresAt: null}], NOW, undefined, 'Reset credit')[1].text,
-            'Reset credit · no expiry reported');
-        assertEqual(resetCreditRows([{title: null, expiresAt: null}], NOW)[1].text, 'No expiry reported');
+    it('without a title: the fallback title, or the expiry alone', () => {
+        assertDeepEqual(resetCreditRows([{title: null, expiresAt: null}], NOW, undefined, 'Reset credit')[1],
+            {kind: 'text', text: 'Reset credit', subtitle: 'No expiry reported'});
+        assertDeepEqual(resetCreditRows([{title: null, expiresAt: null}], NOW)[1], {kind: 'text', text: 'No expiry reported'});
     });
 
     it('does not reorder the caller array', () => {
@@ -252,7 +252,7 @@ describe('resetCreditRows', () => {
     it('translates through the injected translator', () => {
         const rows = resetCreditRows([{title: 'A', expiresAt: null}], NOW, bracket);
         assertEqual(rows[0].label, '[Resets]');
-        assertEqual(rows[1].text, 'A · [no expiry reported]');
+        assertEqual(rows[1].subtitle, '[no expiry reported]');
     });
 });
 

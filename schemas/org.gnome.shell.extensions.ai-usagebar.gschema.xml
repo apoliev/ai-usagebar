@@ -88,6 +88,12 @@
       <description>Where the indicator sits inside its area; 0 is the leftmost. In the center area 0 is left of the clock and 1 right of it.</description>
     </key>
 
+    <key name="toggle-menu" type="as">
+      <default>['&lt;Super&gt;u']</default>
+      <summary>Shortcut to open the popup</summary>
+      <description>Keyboard shortcut that opens or closes the popup. An empty list disables it.</description>
+    </key>
+
     <key name="show-vendor-icons" type="b">
       <default>true</default>
       <summary>Show vendor logos</summary>

@@ -216,6 +216,9 @@ gear button in the popup footer). The prefs window exposes:
 - **Panel position** — the panel area (left, center beside the clock, or right
   beside the system menu) and the position within it. The default is right of
   the clock; changes apply immediately.
+- **Shortcut to open** — a global shortcut that opens or closes the popup,
+  `Super+U` by default (unused by stock GNOME). Click the row and press a new
+  combination, or disable it.
 - **Refresh interval** — seconds between polls (minimum 300; the vendor
   endpoints rate-limit below that).
 - **Per-vendor enable** — toggle each of the seven vendors on or off; only enabled

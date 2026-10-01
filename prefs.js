@@ -176,6 +176,7 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         });
         popupGroup.add(this._entryRow(settings, 'tooltip-format', _('Popup format')));
         popupGroup.add(this._switchRow(settings, 'show-pace-marker', _('Show pace marker')));
+        popupGroup.add(this._shortcutRow(settings, 'toggle-menu', _('Shortcut to open'), cleanups));
         page.add(popupGroup);
 
         const colorGroup = new Adw.PreferencesGroup({
@@ -596,6 +597,73 @@ export default class AiUsagebarPreferences extends ExtensionPreferences {
         row.add_suffix(button);
         row.add_suffix(reset);
         return row;
+    }
+
+    _shortcutRow(settings, key, title, cleanups) {
+        const row = new Adw.ActionRow({title, activatable: true});
+        const label = new Gtk.ShortcutLabel({
+            disabled_text: _('Disabled'),
+            valign: Gtk.Align.CENTER,
+        });
+        const reset = new Gtk.Button({
+            icon_name: 'edit-clear-symbolic',
+            valign: Gtk.Align.CENTER,
+            css_classes: ['flat'],
+            tooltip_text: _('Reset to default'),
+        });
+
+        const resync = () => {
+            label.accelerator = settings.get_strv(key)[0] ?? '';
+            reset.sensitive = settings.get_user_value(key) !== null;
+        };
+
+        const activatedId = row.connect('activated', () =>
+            this._captureShortcut(settings, key, row.get_root()));
+        const resetId = reset.connect('clicked', () => settings.reset(key));
+        const changedId = settings.connect(`changed::${key}`, resync);
+        cleanups.push(() => {
+            row.disconnect(activatedId);
+            reset.disconnect(resetId);
+            settings.disconnect(changedId);
+        });
+
+        resync();
+        row.add_suffix(label);
+        row.add_suffix(reset);
+        return row;
+    }
+
+    // Shortcuts the shell already grabs never reach this window, so a
+    // combination taken by GNOME cannot be recorded here.
+    _captureShortcut(settings, key, parent) {
+        const dialog = new Adw.AlertDialog({
+            heading: _('Set shortcut'),
+            body: _('Press the new shortcut for opening the popup, or Esc to cancel.'),
+        });
+        dialog.add_response('cancel', _('Cancel'));
+        dialog.add_response('disable', _('Disable'));
+        dialog.set_close_response('cancel');
+        dialog.connect('response', (_d, response) => {
+            if (response === 'disable')
+                settings.set_strv(key, []);
+        });
+
+        const controller = new Gtk.EventControllerKey({propagation_phase: Gtk.PropagationPhase.CAPTURE});
+        controller.connect('key-pressed', (_c, keyval, _keycode, state) => {
+            const mask = state & Gtk.accelerator_get_default_mod_mask();
+            // A bare or Shift-only key would swallow ordinary typing system-wide;
+            // let it through so Esc, Tab and Enter still drive the dialog.
+            if ((mask & ~Gdk.ModifierType.SHIFT_MASK) === 0)
+                return Gdk.EVENT_PROPAGATE;
+            const lower = Gdk.keyval_to_lower(keyval);
+            if (!Gtk.accelerator_valid(lower, mask))
+                return Gdk.EVENT_STOP;
+            settings.set_strv(key, [Gtk.accelerator_name(lower, mask)]);
+            dialog.close();
+            return Gdk.EVENT_STOP;
+        });
+        dialog.add_controller(controller);
+        dialog.present(parent);
     }
 
     _passwordRow(settings, key, title) {

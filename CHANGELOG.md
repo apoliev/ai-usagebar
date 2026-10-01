@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-09-30
+
+### Added
+
+- A **keyboard shortcut** opens or closes the popup, `Super+U` by default;
+  change or disable it under **Popup** in preferences.
+
+### Fixed
+
+- A long banked-reset title no longer stretches the popup: each reset shows
+  its title over the expiry, the popup is capped at 440 px wide, and text rows
+  wrap instead.
+
 ## [1.3.0] - 2026-09-30
 
 ### Added

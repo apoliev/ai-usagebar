@@ -133,7 +133,7 @@ describe('buildSection (openai) — injected translator', () => {
 describe('buildSection (openai) — reset credits', () => {
     const later = new Date(NOW.getTime() + 3 * 24 * 60 * MIN);
     const sooner = new Date(NOW.getTime() + 90 * MIN);
-    const expires = d => `expires ${localDateHm(d)} (${formatCountdown(d, NOW)})`;
+    const expires = d => `Expires ${localDateHm(d)} (${formatCountdown(d, NOW)})`;
 
     function withResets(resetCredits) {
         return {...base(), resetCredits};
@@ -161,13 +161,13 @@ describe('buildSection (openai) — reset credits', () => {
         const rows = resetRows(model);
         assertDeepEqual(rows[0], {kind: 'group-heading', label: 'Resets'});
         assertEqual(rows.length, 3);
-        assertEqual(rows[1].text, `Full reset · ${expires(sooner)}`);
-        assertEqual(rows[2].text, `Full reset · ${expires(later)}`);
+        assertDeepEqual(rows[1], {kind: 'text', text: 'Full reset', subtitle: expires(sooner)});
+        assertDeepEqual(rows[2], {kind: 'text', text: 'Full reset', subtitle: expires(later)});
     });
 
     it('an untitled credit reads "Reset credit"', () => {
         const model = buildSection(withResets({available: 1, credits: [{title: null, expiresAt: null}]}), META, NOW, theme);
-        assertEqual(resetRows(model)[1].text, 'Reset credit · no expiry reported');
+        assertDeepEqual(resetRows(model)[1], {kind: 'text', text: 'Reset credit', subtitle: 'No expiry reported'});
     });
 
     it('a count without detail (second call failed) is a single summary line', () => {

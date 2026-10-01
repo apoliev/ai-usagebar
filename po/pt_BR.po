@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ai-usagebar@wilfison\n"
 "Report-Msgid-Bugs-To: https://github.com/wilfison/ai-usagebar/issues\n"
-"POT-Creation-Date: 2026-09-30 12:17+0300\n"
+"POT-Creation-Date: 2026-10-02 01:18+0300\n"
 "PO-Revision-Date: 2026-06-06 12:00+0000\n"
 "Last-Translator: ai-usagebar contributors\n"
 "Language-Team: Portuguese (Brazil)\n"
@@ -196,7 +196,7 @@ msgstr "Limite: %s"
 msgid "Claude %s"
 msgstr "Claude %s"
 
-#: lib/vendors/custom/section.js:34 prefs.js:444
+#: lib/vendors/custom/section.js:34 prefs.js:445
 msgid "Custom provider"
 msgstr "Provedor personalizado"
 
@@ -551,11 +551,15 @@ msgstr "Formato do popup"
 msgid "Show pace marker"
 msgstr "Mostrar marcador de ritmo"
 
-#: prefs.js:182
+#: prefs.js:179
+msgid "Shortcut to open"
+msgstr "Atalho para abrir"
+
+#: prefs.js:183
 msgid "Severity colors"
 msgstr "Cores de severidade"
 
-#: prefs.js:183
+#: prefs.js:184
 msgid ""
 "Pick a color per severity tier. Reset returns a tier to its built-in default."
 msgstr ""
@@ -563,27 +567,27 @@ msgstr ""
 "seu padrão interno."
 
 #. Translators: Low/Mid/High/Critical are usage-severity tier names.
-#: prefs.js:187
+#: prefs.js:188
 msgid "Low"
 msgstr "Baixo"
 
-#: prefs.js:188
+#: prefs.js:189
 msgid "Mid"
 msgstr "Médio"
 
-#: prefs.js:189
+#: prefs.js:190
 msgid "High"
 msgstr "Alto"
 
-#: prefs.js:190
+#: prefs.js:191
 msgid "Critical"
 msgstr "Crítico"
 
-#: prefs.js:194
+#: prefs.js:195
 msgid "Notifications"
 msgstr "Notificações"
 
-#: prefs.js:195
+#: prefs.js:196
 msgid ""
 "Show a desktop notification the first time a usage window reaches the "
 "threshold. It re-arms when usage drops 7 points below it or the window "
@@ -593,19 +597,19 @@ msgstr ""
 "limite. Ela é rearmada quando o uso cai 7 pontos abaixo dele ou a janela "
 "reinicia, e avisa 48 horas antes de um crédito de reset expirar."
 
-#: prefs.js:197
+#: prefs.js:198
 msgid "Notify on high usage"
 msgstr "Notificar em uso elevado"
 
-#: prefs.js:205
+#: prefs.js:206
 msgid "Notification threshold (%)"
 msgstr "Limite de notificação (%)"
 
-#: prefs.js:228 prefs.js:267
+#: prefs.js:229 prefs.js:268
 msgid "Reset"
 msgstr "Restaurar"
 
-#: prefs.js:229
+#: prefs.js:230
 msgid ""
 "Restore every setting — vendor toggles, paths, keys, formats, and colors — "
 "to its built-in default."
@@ -613,47 +617,47 @@ msgstr ""
 "Restaura todas as configurações — alternâncias de fornecedores, caminhos, "
 "chaves, formatos e cores — para o padrão original."
 
-#: prefs.js:231
+#: prefs.js:232
 msgid "Reset all settings"
 msgstr "Restaurar todas as configurações"
 
-#: prefs.js:263
+#: prefs.js:264
 msgid "Reset all settings?"
 msgstr "Restaurar todas as configurações?"
 
-#: prefs.js:264
+#: prefs.js:265
 msgid ""
 "This restores every setting to its built-in default and cannot be undone."
 msgstr ""
 "Isso restaura todas as configurações para o padrão original e não pode ser "
 "desfeito."
 
-#: prefs.js:266
+#: prefs.js:267 prefs.js:643
 msgid "Cancel"
 msgstr "Cancelar"
 
-#: prefs.js:286 prefs.js:290
+#: prefs.js:287 prefs.js:291
 msgid "Anthropic"
 msgstr "Anthropic"
 
-#: prefs.js:291
+#: prefs.js:292
 msgid "Credentials path — empty uses ~/.claude/.credentials.json."
 msgstr "Caminho das credenciais — vazio usa ~/.claude/.credentials.json."
 
-#: prefs.js:293 prefs.js:327 prefs.js:343 prefs.js:361 prefs.js:378
-#: prefs.js:395 prefs.js:411 prefs.js:429 prefs.js:447
+#: prefs.js:294 prefs.js:328 prefs.js:344 prefs.js:362 prefs.js:379
+#: prefs.js:396 prefs.js:412 prefs.js:430 prefs.js:448
 msgid "Enabled"
 msgstr "Ativado"
 
-#: prefs.js:294
+#: prefs.js:295
 msgid "Credentials path"
 msgstr "Caminho das credenciais"
 
-#: prefs.js:298
+#: prefs.js:299
 msgid "Context monitor"
 msgstr "Monitor de contexto"
 
-#: prefs.js:299
+#: prefs.js:300
 msgid ""
 "Lists recent Claude Code sessions in the Claude section, with how much of "
 "the context window each one used. Transcripts are read only while this is on."
@@ -662,88 +666,88 @@ msgstr ""
 "janela de contexto cada uma usou. As transcrições só são lidas enquanto isto "
 "estiver ligado."
 
-#: prefs.js:301
+#: prefs.js:302
 msgid "Show session context"
 msgstr "Mostrar o contexto das sessões"
 
-#: prefs.js:302
+#: prefs.js:303
 msgid "Projects directory (empty: ~/.claude/projects)"
 msgstr "Diretório de projetos (vazio: ~/.claude/projects)"
 
-#: prefs.js:305
+#: prefs.js:306
 msgid "Default context window (tokens)"
 msgstr "Janela de contexto padrão (tokens)"
 
-#: prefs.js:306
+#: prefs.js:307
 msgid "0 shows raw token counts instead of a percentage"
 msgstr "0 mostra a contagem bruta de tokens em vez de um percentual"
 
-#: prefs.js:312
+#: prefs.js:313
 msgid "Window per model (JSON, e.g. {\"claude-opus-5\": 1000000})"
 msgstr "Janela por modelo (JSON, ex.: {\"claude-opus-5\": 1000000})"
 
-#: prefs.js:320 prefs.js:324
+#: prefs.js:321 prefs.js:325
 msgid "OpenAI"
 msgstr "OpenAI"
 
-#: prefs.js:325
+#: prefs.js:326
 msgid "Codex auth path — empty uses ~/.codex/auth.json."
 msgstr "Caminho de autenticação do Codex — vazio usa ~/.codex/auth.json."
 
-#: prefs.js:328
+#: prefs.js:329
 msgid "Codex auth path"
 msgstr "Caminho de autenticação do Codex"
 
-#: prefs.js:336 prefs.js:340
+#: prefs.js:337 prefs.js:341
 msgid "Z.AI"
 msgstr "Z.AI"
 
-#: prefs.js:341 prefs.js:359
+#: prefs.js:342 prefs.js:360
 msgid "Set the API key inline or via the environment variable (env wins)."
 msgstr ""
 "Defina a chave de API embutida ou via variável de ambiente (ambiente "
 "prevalece)."
 
-#: prefs.js:344 prefs.js:362 prefs.js:379 prefs.js:396 prefs.js:430
+#: prefs.js:345 prefs.js:363 prefs.js:380 prefs.js:397 prefs.js:431
 msgid "API key env var"
 msgstr "Variável de ambiente da chave de API"
 
-#: prefs.js:345 prefs.js:363 prefs.js:380 prefs.js:397 prefs.js:431
-#: prefs.js:458
+#: prefs.js:346 prefs.js:364 prefs.js:381 prefs.js:398 prefs.js:432
+#: prefs.js:459
 msgid "API key (inline)"
 msgstr "Chave de API (embutida)"
 
-#: prefs.js:346
+#: prefs.js:347
 msgid "Plan tier (lite/pro/max)"
 msgstr "Nível do plano (lite/pro/max)"
 
-#: prefs.js:354 prefs.js:358
+#: prefs.js:355 prefs.js:359
 msgid "OpenRouter"
 msgstr "OpenRouter"
 
-#: prefs.js:371 prefs.js:375
+#: prefs.js:372 prefs.js:376
 msgid "DeepSeek"
 msgstr "DeepSeek"
 
-#: prefs.js:376 prefs.js:393 prefs.js:427
+#: prefs.js:377 prefs.js:394 prefs.js:428
 msgid "Disabled by default; requires an API key (env var or inline)."
 msgstr ""
 "Desativado por padrão; requer uma chave de API (variável de ambiente ou "
 "embutida)."
 
-#: prefs.js:388 prefs.js:392
+#: prefs.js:389 prefs.js:393
 msgid "Kimi"
 msgstr "Kimi"
 
-#: prefs.js:404
+#: prefs.js:405
 msgid "SourceCraft"
 msgstr "SourceCraft"
 
-#: prefs.js:408
+#: prefs.js:409
 msgid "SourceCraft Code Assistant"
 msgstr "SourceCraft Code Assistant"
 
-#: prefs.js:409
+#: prefs.js:410
 msgid ""
 "Organization AI quotas, including personal organizations. Use a SourceCraft "
 "personal access token (PAT)."
@@ -751,35 +755,35 @@ msgstr ""
 "Cotas de IA da organização, incluindo organizações pessoais. Use um token de "
 "acesso pessoal (PAT) do SourceCraft."
 
-#: prefs.js:412
+#: prefs.js:413
 msgid "Organization slug"
 msgstr "Identificador da organização na URL"
 
-#: prefs.js:413
+#: prefs.js:414
 msgid "PAT env var"
 msgstr "Variável de ambiente do PAT"
 
-#: prefs.js:414
+#: prefs.js:415
 msgid "Personal access token (inline)"
 msgstr "Token de acesso pessoal (embutido)"
 
-#: prefs.js:422
+#: prefs.js:423
 msgid "Ollama"
 msgstr "Ollama"
 
-#: prefs.js:426
+#: prefs.js:427
 msgid "Ollama Cloud"
 msgstr "Ollama Cloud"
 
-#: prefs.js:432
+#: prefs.js:433
 msgid "Plan name (optional)"
 msgstr "Nome do plano (opcional)"
 
-#: prefs.js:439
+#: prefs.js:440
 msgid "Custom"
 msgstr "Personalizado"
 
-#: prefs.js:445
+#: prefs.js:446
 msgid ""
 "Any HTTPS endpoint that answers a GET with JSON, mapped to usage rows by "
 "JSON Pointer. See the README for an example."
@@ -787,46 +791,46 @@ msgstr ""
 "Qualquer endpoint HTTPS que responda a um GET com JSON, mapeado para linhas "
 "de uso por JSON Pointer. Veja um exemplo no README."
 
-#: prefs.js:448
+#: prefs.js:449
 msgid "Name"
 msgstr "Nome"
 
-#: prefs.js:449
+#: prefs.js:450
 msgid "URL"
 msgstr "URL"
 
-#: prefs.js:450
+#: prefs.js:451
 msgid "Allow plain HTTP"
 msgstr "Permitir HTTP simples"
 
-#: prefs.js:454
+#: prefs.js:455
 msgid "Authentication"
 msgstr "Autenticação"
 
-#: prefs.js:455
+#: prefs.js:456
 msgid ""
 "Without a key no auth header is sent. An empty scheme sends the key bare."
 msgstr ""
 "Sem chave, nenhum cabeçalho de autenticação é enviado. Um esquema vazio "
 "envia a chave sozinha."
 
-#: prefs.js:457
+#: prefs.js:458
 msgid "API key env var (optional)"
 msgstr "Variável de ambiente da chave de API (opcional)"
 
-#: prefs.js:459
+#: prefs.js:460
 msgid "Auth header"
 msgstr "Cabeçalho de autenticação"
 
-#: prefs.js:460
+#: prefs.js:461
 msgid "Auth scheme"
 msgstr "Esquema de autenticação"
 
-#: prefs.js:464
+#: prefs.js:465
 msgid "Extra headers"
 msgstr "Cabeçalhos extras"
 
-#: prefs.js:465
+#: prefs.js:466
 msgid ""
 "A JSON object of header names to string values; it must not repeat the auth "
 "header."
@@ -834,18 +838,18 @@ msgstr ""
 "Um objeto JSON de nomes de cabeçalho para valores de texto; não pode repetir "
 "o cabeçalho de autenticação."
 
-#: prefs.js:470
+#: prefs.js:471
 msgid ""
 "Not a JSON object of string header values, or it repeats the auth header."
 msgstr ""
 "Não é um objeto JSON de valores de cabeçalho em texto, ou repete o cabeçalho "
 "de autenticação."
 
-#: prefs.js:476
+#: prefs.js:477
 msgid "Mapping"
 msgstr "Mapeamento"
 
-#: prefs.js:477
+#: prefs.js:478
 msgid ""
 "Metrics (used + limit, or percent) and texts, each read from the response by "
 "JSON Pointer. Saved when the editor loses focus and the mapping is valid."
@@ -853,14 +857,30 @@ msgstr ""
 "Métricas (usado + limite, ou percentual) e textos, cada um lido da resposta "
 "por JSON Pointer. Salvo quando o editor perde o foco e o mapeamento é válido."
 
-#: prefs.js:484
+#: prefs.js:485
 #, javascript-format
 msgid "Not valid JSON: %s"
 msgstr "JSON inválido: %s"
 
-#: prefs.js:563
+#: prefs.js:564 prefs.js:612
 msgid "Reset to default"
 msgstr "Redefinir para o padrão"
+
+#: prefs.js:605
+msgid "Disabled"
+msgstr "Desativado"
+
+#: prefs.js:640
+msgid "Set shortcut"
+msgstr "Definir atalho"
+
+#: prefs.js:641
+msgid "Press the new shortcut for opening the popup, or Esc to cancel."
+msgstr "Pressione o novo atalho para abrir o popup, ou Esc para cancelar."
+
+#: prefs.js:644
+msgid "Disable"
+msgstr "Desativar"
 
 #: ui/indicator.js:126
 msgid "Refresh now"

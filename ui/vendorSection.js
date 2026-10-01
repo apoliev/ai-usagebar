@@ -1,4 +1,5 @@
 import Clutter from 'gi://Clutter';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -10,6 +11,12 @@ function label(text, opts = null) {
     if (opts?.styleClass)
         props.style_class = opts.styleClass;
     const l = new St.Label(props);
+    if (opts?.wrap) {
+        l.x_expand = true;
+        l.clutter_text.line_wrap = true;
+        l.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+        l.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+    }
     let css = '';
     if (opts?.color)
         css += `color: ${opts.color};`;
@@ -82,15 +89,26 @@ function buildGaugeRow(row) {
     return r;
 }
 
+// Wraps rather than widening the popup: text rows carry free-form strings
+// (reset titles, user formats) that the popup's max-width must hold.
 function buildTextLine(row) {
     const dim = row.tone === 'dim';
     const line = new St.BoxLayout({style_class: 'aiusagebar-row', x_expand: true});
     if (row.icon)
         line.add_child(makeIcon(row.icon, dim && !row.color));
+    let text;
     if (row.color)
-        line.add_child(label(row.text, {color: row.color}));
+        text = label(row.text, {color: row.color, wrap: true});
     else
-        line.add_child(label(row.text, dim ? {styleClass: 'aiusagebar-dim'} : null));
+        text = label(row.text, {styleClass: dim ? 'aiusagebar-dim' : null, wrap: true});
+    if (!row.subtitle) {
+        line.add_child(text);
+        return line;
+    }
+    const col = new St.BoxLayout({vertical: true, x_expand: true});
+    col.add_child(text);
+    col.add_child(label(row.subtitle, {styleClass: 'aiusagebar-dim aiusagebar-row-subtitle', wrap: true}));
+    line.add_child(col);
     return line;
 }
 

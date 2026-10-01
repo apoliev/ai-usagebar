@@ -336,22 +336,22 @@ describe('buildSection — resets', () => {
         ]), meta, NOW, theme);
         const rows = resetRows(model);
         assertDeepEqual(rows[0], {kind: 'group-heading', label: 'Resets'});
-        assertEqual(rows[1].text, `Sooner · expires ${localDateHm(sooner)} (${formatCountdown(sooner, NOW)})`);
-        assertEqual(rows[2].text, `Later · expires ${localDateHm(later)} (${formatCountdown(later, NOW)})`);
+        assertDeepEqual(rows[1], {kind: 'text', text: 'Sooner', subtitle: `Expires ${localDateHm(sooner)} (${formatCountdown(sooner, NOW)})`});
+        assertDeepEqual(rows[2], {kind: 'text', text: 'Later', subtitle: `Expires ${localDateHm(later)} (${formatCountdown(later, NOW)})`});
     });
 
-    it('no ends_at reads "no expiry reported" and sorts first', () => {
+    it('no ends_at reads "No expiry reported" and sorts first', () => {
         const model = buildSection(withResets([
             {label: 'Dated', resetsLeft: 1, endsAt: later},
             {label: 'Open', resetsLeft: 1, endsAt: null},
         ]), meta, NOW, theme);
         const rows = resetRows(model);
-        assertEqual(rows[1].text, 'Open · no expiry reported');
+        assertDeepEqual(rows[1], {kind: 'text', text: 'Open', subtitle: 'No expiry reported'});
     });
 
-    it('an expiry in the past reads "expired <date>"', () => {
+    it('an expiry in the past reads "Expired <date>"', () => {
         const model = buildSection(withResets([{label: 'Old', resetsLeft: 1, endsAt: past}]), meta, NOW, theme);
-        assertEqual(resetRows(model)[1].text, `Old · expired ${localDateHm(past)}`);
+        assertEqual(resetRows(model)[1].subtitle, `Expired ${localDateHm(past)}`);
     });
 
     it('a grant without a label shows the capitalized expiry alone', () => {
@@ -370,7 +370,7 @@ describe('buildSection — resets', () => {
         const model = buildSection(withResets([{label: 'X', resetsLeft: 1, endsAt: null}]), meta, NOW, theme, tr);
         const rows = resetRows(model);
         assertEqual(rows[0].label, '<Resets>');
-        assertEqual(rows[1].text, 'X · <no expiry reported>');
+        assertEqual(rows[1].subtitle, '<no expiry reported>');
     });
 });
 
